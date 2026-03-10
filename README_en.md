@@ -33,7 +33,7 @@
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Set your Anthropic API key
-export ANTHROPIC_AUTH_TOKEN="sk-xxxxxxxx..."
+export ANTHROPIC_AUTH_TOKEN="xxxxxxxx..."
 ```
 
 ### Build & Run

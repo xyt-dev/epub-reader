@@ -33,7 +33,7 @@
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # 设置 Anthropic API Key
-export ANTHROPIC_AUTH_TOKEN="sk-xxxxxxxx..."
+export ANTHROPIC_AUTH_TOKEN="xxxxxxxx..."
 ```
 
 ### 编译 & 运行
