@@ -208,12 +208,38 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     a { color: var(--accent); }
 
-    /* ── Progress bar (top) ────────────────────────────────────── */
+    /* ── Progress bar (bottom) ──────────────────────────────────── */
     #progress-bar-wrap {
-      position: fixed; top: 0; left: 0; width: 100%; height: 7px;
-      background: var(--bg2); z-index: 100;
+      position: fixed; bottom: 1.2rem; left: 50%;
+      transform: translateX(-50%);
+      width: min(1000px, 90%); height: 5px;
+      background: rgba(255,255,255,.08);
+      border-radius: 9999px;
+      z-index: 100;
+      box-shadow: 0 0 12px rgba(0,0,0,.5);
     }
-    #progress-bar { height: 100%; background: var(--accent); width: 0%; transition: width .2s; }
+    #progress-bar {
+      height: 100%;
+      width: 0%;
+      border-radius: 9999px;
+      transition: width .25s ease;
+      background: linear-gradient(90deg, #7aa2f7 0%, #bb9af7 50%, #7dcfff 100%);
+      box-shadow: 0 0 8px rgba(122,162,247,.6);
+      position: relative;
+    }
+    #progress-bar::after {
+      content: '';
+      position: absolute;
+      right: -1px; top: 50%;
+      transform: translateY(-50%);
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: #ffe066;
+      box-shadow: 0 0 8px 3px #ffe077, 0 0 20px 6px rgba(255,210,50,.7), 0 0 36px 8px rgba(255,180,0,.35);
+      opacity: 1;
+      transition: opacity .25s;
+    }
+    #progress-bar[style*="width: 0"]::after { opacity: 0; }
 
     /* ── Chapter ───────────────────────────────────────────────── */
     .chapter { margin-bottom: 4rem; }
