@@ -1,6 +1,6 @@
 # epub-reader — Light Novel epub → HTML + AI Paragraph Translation
 
-> A batch converter for Overlord light novel epub files. Outputs styled HTML with collapsible panels, and calls the Claude API to translate each paragraph, extract advanced vocabulary, and highlight useful chunks — with **full resume-after-interrupt support**.
+> A batch converter light novel epub files. Outputs styled HTML with collapsible panels, and calls the Claude API to translate each paragraph, extract advanced vocabulary, and highlight useful chunks — with **full resume-after-interrupt support**.
 
 [中文](README.md)
 
