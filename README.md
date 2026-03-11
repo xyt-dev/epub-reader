@@ -1,4 +1,4 @@
-# epub-reader — 轻小说 epub 转 HTML + AI 逐段翻译工具
+# epub2html-english-tutor — 轻小说 epub 转 HTML + AI 逐段翻译工具
 
 [English](README_en.md)
 

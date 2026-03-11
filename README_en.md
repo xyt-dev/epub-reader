@@ -1,4 +1,4 @@
-# epub-reader — Light Novel epub → HTML + AI Paragraph Translation
+# epub2html-english-tutor — Light Novel epub → HTML + AI Paragraph Translation
 
 [中文](README.md)
 
