@@ -63,10 +63,10 @@ cargo run --release -- --rebuild ../LightNovels
 
 ```
 epub-reader/output/
-├── overlord-light-novels-01-the-undead-king.html       ← 阅读文件
-├── overlord-light-novels-01-the-undead-king_state.json ← 进度存档（勿删）
-├── overlord-light-novels-02-the-dark-warrior.html
-├── overlord-light-novels-02-the-dark-warrior_state.json
+├── novel1.html       ← 阅读文件
+├── novel1.json       ← 进度存档（勿删）
+├── novel2.html
+├── novel2.json
 └── ...
 ```
 
