@@ -88,7 +88,7 @@ fn render_vocab(entries: &[crate::types::VocabEntry]) -> String {
     if entries.is_empty() {
         return "<p class=\"empty\">—</p>".to_string();
     }
-    let mut s = String::from(r#"<table class="vocab-table"><thead><tr><th>单词</th><th>音标</th><th>词性</th><th>释义</th><th>例句</th></tr></thead><tbody>"#);
+    let mut s = String::from(r#"<div class="vocab-scroll"><table class="vocab-table"><thead><tr><th>单词</th><th>音标</th><th>词性</th><th>释义</th><th>例句</th></tr></thead><tbody>"#);
     for e in entries {
         s.push_str(&format!(
             "<tr><td class=\"word\">{}</td><td class=\"ipa\">{}</td><td class=\"pos\">{}</td><td>{}</td><td class=\"example\"><em>{}</em></td></tr>",
@@ -99,7 +99,7 @@ fn render_vocab(entries: &[crate::types::VocabEntry]) -> String {
             encode_text(&e.example),
         ));
     }
-    s.push_str("</tbody></table>");
+    s.push_str("</tbody></table></div>");
     s
 }
 
@@ -305,6 +305,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .translation-section .ai-content p { color: var(--cyan); }
 
     /* Vocab table */
+    .vocab-scroll {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
     .vocab-table {
       width: 100%; border-collapse: collapse;
       font-size: .82rem;

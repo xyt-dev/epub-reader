@@ -1,8 +1,10 @@
 # epub-reader — Light Novel epub → HTML + AI Paragraph Translation
 
+[中文](README.md)
+
 > A batch converter light novel epub files. Outputs styled HTML with collapsible panels, and calls the Claude API to translate each paragraph, extract advanced vocabulary, and highlight useful chunks — with **full resume-after-interrupt support**.
 
-[中文](README.md)
+![png](1.png)
 
 ---
 

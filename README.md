@@ -1,8 +1,10 @@
 # epub-reader — 轻小说 epub 转 HTML + AI 逐段翻译工具
 
+[English](README_en.md)
+
 > 轻小说的英文 epub 批量转换器，输出带折叠面板的精美 HTML，并调用 Claude API 对每段原文进行翻译、词汇讲解和短语分析，**支持中断续传**。
 
-[English](README_en.md)
+![png](1.png)
 
 ---
 
