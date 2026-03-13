@@ -35,6 +35,7 @@ pub fn generate_html(book: &Book) -> String {
 
     HTML_TEMPLATE
         .replace("{{TITLE}}", &encode_text(&book.title))
+        .replace("{{SLUG}}", &book.slug)
         .replace("{{BODY}}", &body)
 }
 
@@ -218,6 +219,14 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       z-index: 100;
       box-shadow: 0 0 12px rgba(0,0,0,.5);
     }
+    #progress-pct {
+      position: fixed; bottom: 1.9rem; right: calc(50% - min(500px, 45%) + 0px);
+      font-size: .7rem; font-family: monospace;
+      color: rgba(255,255,255,.35);
+      z-index: 100;
+      pointer-events: none;
+      user-select: none;
+    }
     #progress-bar {
       height: 100%;
       width: 0%;
@@ -353,6 +362,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 </head>
 <body>
   <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+  <div id="progress-pct">0.00%</div>
 
   <h1 style="color:var(--accent);margin-bottom:2.5rem;font-size:2rem;">{{TITLE}}</h1>
 
@@ -360,10 +370,20 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 
   <script>
     // Reading-progress bar
+    const bar = document.getElementById('progress-bar');
+    const pctEl = document.getElementById('progress-pct');
+    const SCROLL_KEY = 'scroll:{{SLUG}}';
     window.addEventListener('scroll', () => {
       const h = document.documentElement;
       const pct = (h.scrollTop / (h.scrollHeight - h.clientHeight)) * 100;
-      document.getElementById('progress-bar').style.width = pct + '%';
+      bar.style.width = pct + '%';
+      pctEl.textContent = pct.toFixed(2) + '%';
+      localStorage.setItem(SCROLL_KEY, h.scrollTop);
+    });
+    // Restore scroll position on load
+    window.addEventListener('load', () => {
+      const saved = localStorage.getItem(SCROLL_KEY);
+      if (saved) document.documentElement.scrollTop = parseInt(saved);
     });
   </script>
 </body>

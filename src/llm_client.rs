@@ -32,7 +32,7 @@ struct ApiMessage {
 
 #[derive(Deserialize)]
 struct ApiResponse {
-    content: Vec<ContentBlock>,
+    content: Option<Vec<ContentBlock>>,
 }
 
 #[derive(Deserialize)]
@@ -146,11 +146,16 @@ impl LlmClient {
 
         let text = api_resp
             .content
+            .unwrap_or_default()
             .into_iter()
             .filter(|b| b.block_type == "text")
             .filter_map(|b| b.text)
             .collect::<Vec<_>>()
             .join("");
+
+        if text.is_empty() {
+            bail!("API returned empty content (paragraph likely blocked by content filter)");
+        }
 
         // Strip markdown code fences if the model adds them, then extract JSON object
         let json_str = extract_json(&text);
