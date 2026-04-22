@@ -2,11 +2,13 @@
 use anyhow::{bail, Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::types::LlmResponse;
 
 const API_VERSION: &str = "2023-06-01";
 const MODEL: &str = "claude-sonnet-4-6";
+const MAX_OUTPUT_TOKENS: u32 = 8_192;
 
 fn api_url() -> String {
     let base = std::env::var("ANTHROPIC_BASE_URL")
@@ -46,38 +48,56 @@ struct ContentBlock {
 
 const SYSTEM_PROMPT: &str = r#"You are an expert English-to-Chinese literary translator and English language teacher specializing in light novels.
 
-For each paragraph the user sends, you MUST reply with a single JSON object (no markdown fences, no extra text) following this exact schema:
+Return exactly one JSON object with this schema:
 
 {
-  "translation": "<中文翻译，自然流畅，保留原著风格>",
-  "vocabulary": [
+  "items": [
     {
-      "word": "<英文单词或词组>",
-      "ipa": "<IPA音标>",
-      "pos": "<词性，如 n./v./adj./adv./phrase>",
-      "cn": "<中文释义>",
-      "example": "<英文例句（来自书本原句或自造）>"
-    }
-  ],
-  "chunks": [
-    {
-      "chunk": "<常用短语/搭配/句型>",
-      "cn": "<中文释义及用法说明>",
-      "example": "<英文例句>"
+      "id": "<copy the input id exactly>",
+      "translation": "<中文翻译，自然流畅，保留原著风格>",
+      "vocabulary": [
+        {
+          "word": "<英文单词或词组>",
+          "ipa": "<IPA音标>",
+          "pos": "<词性，如 n./v./adj./adv./phrase>",
+          "cn": "<中文释义>",
+          "example": "<英文例句>"
+        }
+      ],
+      "chunks": [
+        {
+          "chunk": "<常用短语/搭配/句型>",
+          "cn": "<中文释义及用法说明>",
+          "example": "<英文例句>"
+        }
+      ]
     }
   ]
 }
 
 Rules:
-1. "translation": translate the entire paragraph into natural, idiomatic Chinese.
-2. "vocabulary": pick 3-8 words or phrases with IELTS difficulty ≥ 6.5 (C1/C2 level). Include academic/literary vocabulary, advanced idioms, and domain-specific terms worth noting. Skip common words.
-3. "chunks": pick 2-5 useful collocations, fixed phrases, or syntactic patterns from the paragraph that are worth learning. Focus on native-sounding expressions.
-4. Always output valid JSON. Escape any special characters properly.
-5. If a paragraph is too short or lacks rich vocabulary, keep the arrays empty ([]).
-6. CRITICAL: You will NEVER ask for clarification, never say the message is cut off, and never ask for more text. The paragraph between <paragraph> and </paragraph> tags is ALWAYS the complete input. Always respond with the JSON object, no matter what.
+1. Process every input item and copy each "id" exactly once.
+2. "translation": translate the full paragraph naturally and preserve the original tone.
+3. "vocabulary": pick 3-8 advanced words or phrases worth learning (about IELTS 6.5+, C1/C2). Skip common words.
+4. "chunks": pick 2-5 useful collocations, phrases, or sentence patterns worth learning.
+5. If a paragraph is too short or lacks rich material, keep "vocabulary" and "chunks" as [].
+6. Output valid JSON only. No markdown fences, no notes, no omitted ids.
+7. Every input "text" field is the complete paragraph. Never ask for more text.
 "#;
 
 // ── Public API ───────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+pub struct TranslationRequest<'a> {
+    pub id: &'a str,
+    pub text: &'a str,
+}
+
+#[derive(Debug, Clone)]
+pub struct TranslationResult {
+    pub id: String,
+    pub response: LlmResponse,
+}
 
 #[derive(Clone)]
 pub struct LlmClient {
@@ -93,13 +113,20 @@ impl LlmClient {
         }
     }
 
-    /// Translate a single paragraph text, returning a structured LlmResponse.
+    /// Translate one or more paragraphs in a single request.
     /// Retries up to 3 times on transient errors.
-    pub async fn translate_paragraph(&self, text: &str) -> Result<LlmResponse> {
+    pub async fn translate_batch(
+        &self,
+        items: &[TranslationRequest<'_>],
+    ) -> Result<Vec<TranslationResult>> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut last_err = anyhow::anyhow!("no attempts made");
 
         for attempt in 1..=3 {
-            match self.call_api(text).await {
+            match self.call_api(items).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
                     eprintln!("  [llm] attempt {}/3 failed: {}", attempt, e);
@@ -111,14 +138,34 @@ impl LlmClient {
         Err(last_err)
     }
 
-    async fn call_api(&self, paragraph_text: &str) -> Result<LlmResponse> {
+    pub async fn translate_paragraph(&self, para_id: &str, text: &str) -> Result<LlmResponse> {
+        let request = [TranslationRequest { id: para_id, text }];
+        let mut results = self.translate_batch(&request).await?;
+        match results.len() {
+            1 => Ok(results.pop().unwrap().response),
+            count => bail!("expected 1 translation item, got {}", count),
+        }
+    }
+
+    async fn call_api(&self, items: &[TranslationRequest<'_>]) -> Result<Vec<TranslationResult>> {
+        let content = serde_json::to_string(&BatchInput {
+            items: items
+                .iter()
+                .map(|item| BatchInputItem {
+                    id: item.id,
+                    text: item.text,
+                })
+                .collect(),
+        })
+        .context("failed to serialize translation batch request")?;
+
         let req_body = ApiRequest {
             model: MODEL.to_string(),
-            max_tokens: 4096,
+            max_tokens: MAX_OUTPUT_TOKENS,
             system: SYSTEM_PROMPT.to_string(),
             messages: vec![ApiMessage {
                 role: "user".to_string(),
-                content: format!("<paragraph>{}</paragraph>", paragraph_text),
+                content,
             }],
         };
 
@@ -151,27 +198,89 @@ impl LlmClient {
             .join("");
 
         if text.is_empty() {
-            bail!("API returned empty content (paragraph likely blocked by content filter)");
+            bail!("API returned empty content (batch likely blocked by content filter)");
         }
 
-        // Strip markdown code fences if the model adds them, then extract JSON object
-        let json_str = extract_json(&text);
-
-        let llm_resp: LlmResponse = serde_json::from_str(&json_str)
-            .with_context(|| {
-                let json_preview = truncate_str(&json_str, 600);
-                let raw_preview = truncate_str(&text, 200);
-                format!(
-                    "LLM returned invalid JSON.\nExtracted ({} chars):\n---\n{}\n---\nRaw ({} chars, first 200):\n---\n{}\n---",
-                    json_str.len(),
-                    json_preview,
-                    text.len(),
-                    raw_preview,
-                )
-            })?;
-
-        Ok(llm_resp)
+        parse_batch_response(&text, items)
     }
+}
+
+#[derive(Serialize)]
+struct BatchInput<'a> {
+    items: Vec<BatchInputItem<'a>>,
+}
+
+#[derive(Serialize)]
+struct BatchInputItem<'a> {
+    id: &'a str,
+    text: &'a str,
+}
+
+#[derive(Deserialize)]
+struct BatchOutput {
+    items: Vec<BatchOutputItem>,
+}
+
+#[derive(Deserialize)]
+struct BatchOutputItem {
+    id: String,
+    #[serde(flatten)]
+    response: LlmResponse,
+}
+
+fn parse_batch_response(
+    raw: &str,
+    expected: &[TranslationRequest<'_>],
+) -> Result<Vec<TranslationResult>> {
+    let json_str = extract_json(raw);
+
+    let payload: BatchOutput = serde_json::from_str(&json_str).with_context(|| {
+        let json_preview = truncate_str(&json_str, 900);
+        let raw_preview = truncate_str(raw, 240);
+        format!(
+            "LLM returned invalid batch JSON.\nExtracted ({} chars):\n---\n{}\n---\nRaw ({} chars, first 240):\n---\n{}\n---",
+            json_str.len(),
+            json_preview,
+            raw.len(),
+            raw_preview,
+        )
+    })?;
+
+    validate_batch_items(payload.items, expected)
+}
+
+fn validate_batch_items(
+    items: Vec<BatchOutputItem>,
+    expected: &[TranslationRequest<'_>],
+) -> Result<Vec<TranslationResult>> {
+    let mut seen = HashSet::with_capacity(items.len());
+    let mut by_id = HashMap::with_capacity(items.len());
+
+    for item in items {
+        if !seen.insert(item.id.clone()) {
+            bail!("LLM returned duplicate id '{}'", item.id);
+        }
+        by_id.insert(item.id.clone(), item.response);
+    }
+
+    let mut ordered = Vec::with_capacity(expected.len());
+    for request in expected {
+        let response = by_id
+            .remove(request.id)
+            .with_context(|| format!("LLM response missing id '{}'", request.id))?;
+        ordered.push(TranslationResult {
+            id: request.id.to_string(),
+            response,
+        });
+    }
+
+    if !by_id.is_empty() {
+        let mut unexpected = by_id.keys().cloned().collect::<Vec<_>>();
+        unexpected.sort();
+        bail!("LLM returned unexpected ids: {}", unexpected.join(", "));
+    }
+
+    Ok(ordered)
 }
 
 /// Best-effort extraction of a JSON object from LLM output.
@@ -387,4 +496,73 @@ fn strip_code_fence(s: &str) -> &str {
         }
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_response(id: &str, translation: &str) -> BatchOutputItem {
+        BatchOutputItem {
+            id: id.to_string(),
+            response: LlmResponse {
+                translation: translation.to_string(),
+                vocabulary: Vec::new(),
+                chunks: Vec::new(),
+            },
+        }
+    }
+
+    #[test]
+    fn validate_batch_items_reorders_to_input_sequence() {
+        let expected = [
+            TranslationRequest {
+                id: "p1",
+                text: "first",
+            },
+            TranslationRequest {
+                id: "p2",
+                text: "second",
+            },
+        ];
+
+        let items = vec![sample_response("p2", "two"), sample_response("p1", "one")];
+        let ordered = validate_batch_items(items, &expected).unwrap();
+
+        assert_eq!(ordered[0].id, "p1");
+        assert_eq!(ordered[0].response.translation, "one");
+        assert_eq!(ordered[1].id, "p2");
+        assert_eq!(ordered[1].response.translation, "two");
+    }
+
+    #[test]
+    fn validate_batch_items_rejects_missing_ids() {
+        let expected = [
+            TranslationRequest {
+                id: "p1",
+                text: "first",
+            },
+            TranslationRequest {
+                id: "p2",
+                text: "second",
+            },
+        ];
+
+        let err = validate_batch_items(vec![sample_response("p1", "one")], &expected).unwrap_err();
+        assert!(err.to_string().contains("missing id 'p2'"));
+    }
+
+    #[test]
+    fn parse_batch_response_accepts_wrapped_json() {
+        let expected = [TranslationRequest {
+            id: "p1",
+            text: "first",
+        }];
+        let raw = "```json\n{\"items\":[{\"id\":\"p1\",\"translation\":\"译文\",\"vocabulary\":[],\"chunks\":[]}]}\n```";
+
+        let parsed = parse_batch_response(raw, &expected).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].id, "p1");
+        assert_eq!(parsed[0].response.translation, "译文");
+    }
 }

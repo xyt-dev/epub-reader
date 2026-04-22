@@ -2,7 +2,7 @@
 
 [English](README_en.md)
 
-> 把 `.epub`、`.md/.markdown`、`.txt` 转成可阅读 HTML，并调用 Claude 为每段生成译文、词汇讲解和短语分析。支持断点续传、离线重建、可控并发翻译和可配置文本分段。
+> 把 `.epub`、`.md/.markdown`、`.txt` 转成可阅读 HTML，并调用 Claude 为每段生成译文、词汇讲解和短语分析。支持断点续传、离线重建、可控并发翻译、连续段落批请求和可配置文本分段。
 
 ![png](1.png)
 
@@ -12,9 +12,11 @@
 - 支持单文件处理，也支持递归扫描整个目录
 - 输出阅读友好的 HTML，每段带 3 个折叠区块
 - 调用 Claude 返回结构化 JSON：译文 / 词汇 / chunks
+- 连续段落会按批次请求 Claude，并在请求和响应里显式携带段落 ID
 - 支持 `Ctrl+C` 中断后继续跑，已完成段落不会重复请求
 - 支持 `--rebuild` 离线重建 HTML，不调用 API
 - 支持 `--jobs` 控制并发请求数，支持 `--request-delay-ms` 节流
+- 默认批处理策略：目标约 `5000` 有效字符、硬上限 `7000`、每批最多 `10` 段，批失败会自动降级为逐段重试
 - TXT / Markdown 分段规则可通过 CLI 参数调节
 - HTML 和 state 都走原子写入，崩溃时更安全
 
@@ -79,6 +81,11 @@ cargo run --release -- --txt-hard-linebreaks ./draft.txt
 ```bash
 cargo run --release -- --jobs 3 --request-delay-ms 250 ./books
 ```
+
+说明：
+
+- `--jobs` 控制同时进行的批请求数，而不是单段请求数
+- 每个批次默认会尽量保持连续段落，并把有效字符数控制在 `7000` 以内
 
 ### 7. 离线重建 HTML
 
@@ -192,6 +199,28 @@ output/
 
 > 不要随意删除 `*_state.json`，除非你确定要从头重跑。
 
+## 批处理策略
+
+翻译阶段默认不是“一段发一次请求”，而是“连续段落小批量请求”：
+
+- 每个请求会发送一个 `items` 数组，数组里每项都带 `id` 和 `text`
+- Claude 必须返回同样带 `id` 的 `items` 数组
+- 本地会按 `id` 校验、重排并写回 HTML / `state.json`
+
+当前默认策略：
+
+- 目标批大小：约 `5000` 个有效字符
+- 单批硬上限：`7000` 个有效字符
+- 单批最多：`10` 段
+- 单段超过 `2800` 有效字符：单独发送
+- 批请求失败：自动回退为逐段请求
+
+这样做的目的是：
+
+- 摊薄 system prompt 的重复 token 成本
+- 保持相邻段落上下文，避免把不连续内容拼在一批
+- 即使批返回顺序不同，也能靠 `para_id` 准确落回对应段落
+
 ## 如何继续 / 重跑
 
 ### 继续跑
@@ -235,14 +264,16 @@ cargo run --release -- --rebuild ./books ./output
 
 1. 解析输入文件，得到统一的 `Book` 结构
 2. 生成 HTML 骨架，每段预留译文 / 词汇 / chunks 占位区
-3. 并发请求 Claude，返回结构化 JSON
-4. 收到结果后按 `para_id` patch HTML
+3. 将连续段落按批次组成 `items[{id, text}]` 请求，并发发送给 Claude
+4. 收到 `items[{id, translation, vocabulary, chunks}]` 后按 `para_id` 校验并 patch HTML
 5. 先原子写入 HTML，再写入 `*_state.json`
 
 这样做的结果是：
 
 - 即使并发请求完成顺序不同，也不会错位
+- 即使批响应内部顺序不同，也会按 `id` 重排后再落盘
 - 中途崩溃时，最坏情况通常只是某段需要重翻
+- 如果批请求失败，会自动拆回单段重试
 - `--rebuild` 可以完全跳过 API，只根据 state 恢复 HTML
 
 ## 项目结构

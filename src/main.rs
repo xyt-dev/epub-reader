@@ -13,7 +13,7 @@ mod ui;
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser};
 use indicatif::ProgressBar;
-use llm_client::LlmClient;
+use llm_client::{LlmClient, TranslationRequest};
 use parse_utils::ParseOptions;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -119,11 +119,26 @@ struct PendingParagraph {
     para_text: String,
 }
 
+#[derive(Debug, Clone)]
+struct PendingBatch {
+    paragraphs: Vec<PendingParagraph>,
+}
+
 #[derive(Debug)]
-struct TranslationTaskResult {
+struct ParagraphTaskResult {
     para_id: String,
     outcome: std::result::Result<types::LlmResponse, String>,
 }
+
+#[derive(Debug)]
+struct TranslationTaskResult {
+    items: Vec<ParagraphTaskResult>,
+}
+
+const BATCH_TARGET_CHARS: usize = 5_000;
+const BATCH_HARD_MAX_CHARS: usize = 7_000;
+const BATCH_MAX_ITEMS: usize = 10;
+const SINGLE_PARAGRAPH_CHARS: usize = 2_800;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -143,8 +158,11 @@ async fn main() -> Result<()> {
         ui::print_kv(
             "llm",
             format!(
-                "{} job(s) · {}ms launch delay",
-                translation_options.jobs, args.request_delay_ms
+                "{} job(s) · {}ms launch delay · adaptive batches target {} / max {} chars",
+                translation_options.jobs,
+                args.request_delay_ms,
+                BATCH_TARGET_CHARS,
+                BATCH_HARD_MAX_CHARS
             ),
         );
     }
@@ -316,14 +334,22 @@ async fn process_input(
         });
     }
 
-    ui::print_step("translate", "requesting Claude paragraph by paragraph");
+    ui::print_step("translate", "requesting Claude in adaptive batches");
     let pb = ProgressBar::new(pending.len() as u64);
     pb.set_style(ui::progress_style(true));
     pb.enable_steady_tick(Duration::from_millis(80));
 
     let para_map = build_para_map(&book);
+    let pending_batches = build_translation_batches(pending);
+    ui::print_kv(
+        "batching",
+        format!(
+            "{} request(s) queued from remaining paragraphs",
+            pending_batches.len()
+        ),
+    );
     let mut join_set = JoinSet::new();
-    let mut pending_iter = pending.into_iter();
+    let mut pending_iter = pending_batches.into_iter();
     let mut launched_any = false;
 
     fill_translation_queue(
@@ -337,22 +363,30 @@ async fn process_input(
 
     while let Some(joined) = join_set.join_next().await {
         let task = joined.context("translation worker panicked")?;
+        let batch_size = task.items.len();
+        let last_id = task
+            .items
+            .last()
+            .map(|item| abbreviate_para_id(&item.para_id))
+            .unwrap_or_else(|| "-".to_string());
 
-        match task.outcome {
-            Ok(resp) => {
-                if let Some(para) = para_map.get(task.para_id.as_str()) {
-                    html_content = html_gen::patch_html(&html_content, para, &resp);
+        for item in task.items {
+            match item.outcome {
+                Ok(resp) => {
+                    if let Some(para) = para_map.get(item.para_id.as_str()) {
+                        html_content = html_gen::patch_html(&html_content, para, &resp);
+                    }
+
+                    fs_utils::atomic_write(&html_path, html_content.as_bytes())?;
+                    st.mark_done(item.para_id.clone(), resp);
+                    state::save_state(&state_path, &st)?;
                 }
-
-                fs_utils::atomic_write(&html_path, html_content.as_bytes())?;
-                st.mark_done(task.para_id.clone(), resp);
-                state::save_state(&state_path, &st)?;
+                Err(err) => {
+                    pb.println(ui::warn_text(format!("skipping {}: {}", item.para_id, err)));
+                }
             }
-            Err(err) => {
-                pb.println(ui::warn_text(format!("skipping {}: {}", task.para_id, err)));
-            }
+            pb.inc(1);
         }
-        pb.inc(1);
 
         fill_translation_queue(
             &mut join_set,
@@ -367,9 +401,10 @@ async fn process_input(
             pb.set_message("finalizing".to_string());
         } else {
             pb.set_message(format!(
-                "active={} · last={}",
+                "active={} · batch={} · last={}",
                 join_set.len(),
-                abbreviate_para_id(&task.para_id)
+                batch_size,
+                last_id
             ));
         }
     }
@@ -394,7 +429,7 @@ fn build_para_map<'a>(book: &'a types::Book) -> HashMap<&'a str, &'a types::Para
 
 async fn fill_translation_queue(
     join_set: &mut JoinSet<TranslationTaskResult>,
-    pending_iter: &mut std::vec::IntoIter<PendingParagraph>,
+    pending_iter: &mut std::vec::IntoIter<PendingBatch>,
     client: &LlmClient,
     options: &TranslationOptions,
     launched_any: &mut bool,
@@ -410,16 +445,99 @@ async fn fill_translation_queue(
 
         let client = client.clone();
         join_set.spawn(async move {
-            let para_id = job.para_id;
-            let outcome = client
-                .translate_paragraph(&job.para_text)
-                .await
-                .map_err(|err| format!("{:#}", err));
+            let request_items = job
+                .paragraphs
+                .iter()
+                .map(|paragraph| TranslationRequest {
+                    id: paragraph.para_id.as_str(),
+                    text: paragraph.para_text.as_str(),
+                })
+                .collect::<Vec<_>>();
 
-            TranslationTaskResult { para_id, outcome }
+            let items = match client.translate_batch(&request_items).await {
+                Ok(responses) => responses
+                    .into_iter()
+                    .map(|response| ParagraphTaskResult {
+                        para_id: response.id,
+                        outcome: Ok(response.response),
+                    })
+                    .collect(),
+                Err(batch_err) if job.paragraphs.len() > 1 => {
+                    eprintln!(
+                        "  [llm] batch of {} failed, retrying individually: {:#}",
+                        job.paragraphs.len(),
+                        batch_err
+                    );
+                    let mut fallback = Vec::with_capacity(job.paragraphs.len());
+                    for paragraph in job.paragraphs {
+                        let para_id = paragraph.para_id;
+                        let outcome = client
+                            .translate_paragraph(&para_id, &paragraph.para_text)
+                            .await
+                            .map_err(|err| format!("{:#}", err));
+                        fallback.push(ParagraphTaskResult { para_id, outcome });
+                    }
+                    fallback
+                }
+                Err(batch_err) => job
+                    .paragraphs
+                    .into_iter()
+                    .map(|paragraph| ParagraphTaskResult {
+                        para_id: paragraph.para_id,
+                        outcome: Err(format!("{:#}", batch_err)),
+                    })
+                    .collect(),
+            };
+
+            TranslationTaskResult { items }
         });
         *launched_any = true;
     }
+}
+
+fn build_translation_batches(pending: Vec<PendingParagraph>) -> Vec<PendingBatch> {
+    let mut batches = Vec::new();
+    let mut iter = pending.into_iter().peekable();
+
+    while let Some(first) = iter.next() {
+        let mut total_chars = effective_text_chars(&first.para_text);
+        let mut paragraphs = vec![first];
+
+        if total_chars > SINGLE_PARAGRAPH_CHARS {
+            batches.push(PendingBatch { paragraphs });
+            continue;
+        }
+
+        while paragraphs.len() < BATCH_MAX_ITEMS {
+            if paragraphs.len() >= 2 && total_chars >= BATCH_TARGET_CHARS {
+                break;
+            }
+
+            let Some(next) = iter.peek() else {
+                break;
+            };
+
+            let next_chars = effective_text_chars(&next.para_text);
+            if next_chars > SINGLE_PARAGRAPH_CHARS {
+                break;
+            }
+
+            if total_chars + next_chars > BATCH_HARD_MAX_CHARS {
+                break;
+            }
+
+            total_chars += next_chars;
+            paragraphs.push(iter.next().unwrap());
+        }
+
+        batches.push(PendingBatch { paragraphs });
+    }
+
+    batches
+}
+
+fn effective_text_chars(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
 }
 
 fn parse_options_from_args(args: &Args) -> ParseOptions {
@@ -481,6 +599,69 @@ fn collect_inputs(path: &Path) -> Result<Vec<PathBuf>> {
 
     inputs.sort();
     Ok(inputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pending(id: &str, len: usize) -> PendingParagraph {
+        PendingParagraph {
+            para_id: id.to_string(),
+            para_text: "a".repeat(len),
+        }
+    }
+
+    #[test]
+    fn batching_respects_max_items_cap() {
+        let pending = (0..10)
+            .map(|idx| pending(&format!("p{}", idx), 300))
+            .collect::<Vec<_>>();
+
+        let batches = build_translation_batches(pending);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].paragraphs.len(), 10);
+    }
+
+    #[test]
+    fn batching_stops_near_target_total_chars() {
+        let pending = vec![
+            pending("p1", 2_600),
+            pending("p2", 2_400),
+            pending("p3", 300),
+        ];
+
+        let batches = build_translation_batches(pending);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].paragraphs.len(), 2);
+        assert_eq!(batches[1].paragraphs.len(), 1);
+    }
+
+    #[test]
+    fn batching_respects_hard_char_limit() {
+        let pending = (0..3)
+            .map(|idx| pending(&format!("p{}", idx), 2_400))
+            .collect::<Vec<_>>();
+
+        let batches = build_translation_batches(pending);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].paragraphs.len(), 2);
+        assert_eq!(batches[1].paragraphs.len(), 1);
+    }
+
+    #[test]
+    fn oversized_paragraphs_are_sent_alone() {
+        let pending = vec![pending("p1", 2_900), pending("p2", 2_950)];
+        let batches = build_translation_batches(pending);
+
+        assert_eq!(batches.len(), 2);
+        assert!(batches.iter().all(|batch| batch.paragraphs.len() == 1));
+    }
+
+    #[test]
+    fn effective_text_chars_ignores_whitespace() {
+        assert_eq!(effective_text_chars("ab c\n d\t"), 4);
+    }
 }
 
 fn visit_dir(dir: &Path, inputs: &mut Vec<PathBuf>) -> Result<()> {

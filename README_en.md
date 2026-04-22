@@ -2,7 +2,7 @@
 
 [中文](README.md)
 
-> Convert `.epub`, `.md/.markdown`, and `.txt` into readable HTML, then use Claude to generate a translation, vocabulary notes, and chunk analysis for each paragraph. Supports resume-after-interrupt, offline rebuild, controlled concurrency, and configurable text segmentation.
+> Convert `.epub`, `.md/.markdown`, and `.txt` into readable HTML, then use Claude to generate a translation, vocabulary notes, and chunk analysis for each paragraph. Supports resume-after-interrupt, offline rebuild, controlled concurrency, contiguous paragraph batching, and configurable text segmentation.
 
 ![png](1.png)
 
@@ -12,9 +12,11 @@
 - Works on a single file or recursively scans a directory
 - Produces reader-friendly HTML with 3 collapsible AI sections per paragraph
 - Calls Claude and expects structured JSON: translation / vocabulary / chunks
+- Sends contiguous paragraphs in batches and carries explicit paragraph IDs in both request and response payloads
 - Supports `Ctrl+C` interrupt and resume without redoing completed paragraphs
 - Supports `--rebuild` to regenerate HTML from state files without API calls
 - Supports `--jobs` for concurrent requests and `--request-delay-ms` for throttling
+- Default batching strategy: target about `5000` effective chars, hard cap `7000`, max `10` paragraphs per request, with automatic single-paragraph fallback on batch failure
 - TXT / Markdown segmentation behavior can be tuned from the CLI
 - Both HTML and state files use atomic writes for safer crash recovery
 
@@ -79,6 +81,11 @@ cargo run --release -- --txt-hard-linebreaks ./draft.txt
 ```bash
 cargo run --release -- --jobs 3 --request-delay-ms 250 ./books
 ```
+
+Notes:
+
+- `--jobs` controls concurrent batch requests, not concurrent single paragraphs
+- Each batch keeps contiguous paragraphs and tries to stay within `7000` effective characters
 
 ### 7. Rebuild HTML offline
 
@@ -192,6 +199,24 @@ output/
 
 > Do not delete `*_state.json` unless you intentionally want to restart from scratch.
 
+## Batching Strategy
+
+The translation stage does not send one paragraph per request by default. It sends small batches of contiguous paragraphs:
+
+- Each request sends an `items` array, where every item includes `id` and `text`
+- Claude must return an `items` array with the same `id` values
+- The program validates, reorders, and writes results back by `id`
+
+Current defaults:
+
+- Target batch size: about `5000` effective characters
+- Hard per-batch cap: `7000` effective characters
+- Maximum per batch: `10` paragraphs
+- Single paragraph over `2800` effective characters: sent alone
+- Batch failure: automatically falls back to single-paragraph requests
+
+This keeps the system prompt cost lower, preserves local reading context, and still lets HTML / state updates stay deterministic.
+
 ## Resume / Restart
 
 ### Continue from where you left off
@@ -235,14 +260,16 @@ Current pipeline:
 
 1. Parse the input file into a unified `Book` structure
 2. Generate an HTML skeleton with placeholders for translation / vocabulary / chunks
-3. Request Claude with bounded concurrency
-4. Patch HTML by `para_id` as results arrive
+3. Group contiguous paragraphs into `items[{id, text}]` batches and send them to Claude with bounded concurrency
+4. Validate `items[{id, translation, vocabulary, chunks}]` by `para_id`, then patch HTML
 5. Atomically write HTML first, then write `*_state.json`
 
 This gives you:
 
 - No paragraph misalignment even when requests finish out of order
+- No paragraph misalignment even when items inside a batch come back out of order
 - Safe crash behavior, where the worst case is usually redoing one paragraph
+- Automatic fallback to single-paragraph retries when a batch fails
 - Full `--rebuild` support without any API call
 
 ## Project Structure
