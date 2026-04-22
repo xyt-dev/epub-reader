@@ -1,32 +1,24 @@
-# epub2html-english-tutor — 轻小说 epub 转 HTML + AI 逐段翻译工具
+# epub-reader — EPUB / Markdown / TXT 转 HTML + AI 逐段翻译工具
 
 [English](README_en.md)
 
-> 轻小说的英文 epub 批量转换器，输出带折叠面板的精美 HTML，并调用 Claude API 对每段原文进行翻译、词汇讲解和短语分析，**支持中断续传**。
+> 把 `.epub`、`.md/.markdown`、`.txt` 转成可阅读 HTML，并调用 Claude 为每段生成译文、词汇讲解和短语分析。支持断点续传、离线重建、可控并发翻译和可配置文本分段。
 
 ![png](1.png)
 
----
+## 功能特性
 
-## 目录
+- 支持 `epub`、`md/markdown`、`txt` 三类输入
+- 支持单文件处理，也支持递归扫描整个目录
+- 输出阅读友好的 HTML，每段带 3 个折叠区块
+- 调用 Claude 返回结构化 JSON：译文 / 词汇 / chunks
+- 支持 `Ctrl+C` 中断后继续跑，已完成段落不会重复请求
+- 支持 `--rebuild` 离线重建 HTML，不调用 API
+- 支持 `--jobs` 控制并发请求数，支持 `--request-delay-ms` 节流
+- TXT / Markdown 分段规则可通过 CLI 参数调节
+- HTML 和 state 都走原子写入，崩溃时更安全
 
-- [快速开始](#快速开始)
-- [功能一览](#功能一览)
-- [架构设计原理](#架构设计原理)
-- [项目结构](#项目结构)
-- [协议详解](#协议详解)
-  - [段落 ID 规范](#1-段落-id-规范)
-  - [HTML 占位符格式](#2-html-占位符格式)
-  - [LLM 请求/响应协议](#3-llm-请求响应协议)
-  - [断点续传机制](#4-断点续传机制)
-  - [原子写入机制](#5-原子写入机制)
-- [HTML 样式说明](#html-样式说明)
-- [输出文件说明](#输出文件说明)
-- [词汇与短语标准](#词汇与短语标准)
-
----
-
-## 快速开始
+## 安装
 
 ### 前置条件
 
@@ -35,377 +27,262 @@
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # 设置 Anthropic API Key
-export ANTHROPIC_AUTH_TOKEN="xxxxxxxx..."
+export ANTHROPIC_AUTH_TOKEN="sk-ant-..."
+
+# 可选：自定义兼容网关
+export ANTHROPIC_BASE_URL="https://api.anthropic.com"
 ```
 
-### 编译 & 运行
+### 编译
 
 ```bash
 cd epub-reader
-
-# 编译 release 版本（更快）
 cargo build --release
-
-# 翻译整个目录下所有 .epub（必须传路径）
-cargo run --release -- ../LightNovels
-
-# 或只翻译单册
-cargo run --release -- ../LightNovels/vol1.epub
-
-# 自定义输出目录（默认 ./output）
-cargo run --release -- ../LightNovels ./my_output
-
-# 离线重建 HTML（不调 API，从已有 state.json 恢复）
-cargo run --release -- --rebuild ../LightNovels
 ```
 
-### 输出位置
+## 快速开始
 
-```
-epub-reader/output/
-├── novel1.html       ← 阅读文件
-├── novel1.json       ← 进度存档（勿删）
-├── novel2.html
-├── novel2.json
-└── ...
+### 1. 翻译单个 EPUB
+
+```bash
+cargo run --release -- ./books/vol1.epub
 ```
 
-### 中断后续传
+### 2. 翻译整个目录
 
-程序随时可以 `Ctrl+C` 中断。重新运行同一命令，它会自动读取 `_state.json`，**跳过已翻译的段落**，从上次停止的位置继续。
-
----
-
-## 功能一览
-
-| 功能 | 说明 |
-|---|---|
-| epub 批量解析 | 递归扫描目录，或直接传单个 `.epub` 文件 |
-| HTML 骨架生成 | 每段原文配三个折叠面板，初始内容为占位注释 |
-| Claude API 翻译 | 逐段调用 `claude-sonnet-4-6`，返回结构化 JSON |
-| 实时填空 | 每翻译完一段，立即将 JSON 内容渲染进 HTML 并写盘 |
-| 断点续传 | 状态持久化到 JSON 文件，中断后自动续传 |
-| 错误重试 | 每段最多重试 3 次，单段失败不影响整体进度 |
-| 离线重建 | `--rebuild` 模式从 state.json 恢复 HTML，无需调用 API |
-| 精美样式 | Tokyo Night 配色、折叠面板、顶部进度条、响应式布局 |
-
----
-
-## 架构设计原理
-
-### 核心：以 ID 为键，而非位置索引
-
-防止翻译结果与 HTML 填空错位的根本机制，是**全程以段落 ID 为唯一键**，从不依赖顺序下标。
-
-```
-epub 文件
-  └─→ parse_epub()
-        └─→ Book { paragraphs: [ { id: "...-ch001-p0006", text: "..." }, ... ] }
-                                       ↑ ID 在此生成，全书唯一
-                        ┌──────────────┘
-                        │  同一个 Book 对象，同时用于：
-                        ├─→ html_gen: 生成 <div id="...-ch001-p0006"> 骨架
-                        └─→ pending 列表: (id, text) 对
-                                               │
-                                    发给 LLM（只发 text，LLM 不知道 ID）
-                                               │
-                                    拿回 resp
-                                               │
-                                    patch_html: 在 HTML 中搜索 id="...-ch001-p0006"
-                                    state.json: { "...-ch001-p0006": resp }
+```bash
+cargo run --release -- ./books ./output
 ```
 
-**为什么不会错位**：
-- HTML 骨架和 pending 列表来自**同一个内存对象**，ID 天然一致
-- `patch_html` 靠 `id="{para_id}"` 字符串定位，而非第 N 个 `<div>`
-- state.json 的 key 是 para_id，而非数组下标
-- 每段**串行**处理：发请求 → 等响应 → 立即写盘 → 再处理下一段，不存在批量乱序
+### 3. 处理 Markdown
 
-### 重要假设：epub 文件不可变
-
-ID 格式为 `{slug}-ch{章}-p{章内序号}`，`p` 是**每章内**从 0 重新计数的序号。若两次运行之间 epub 被修改（增删段落），则新解析出的 ID 与 state.json 中存储的旧 ID 会错位。**epub 下载后不应修改**。如需重来，删除对应的 `.html` 和 `_state.json` 后重新运行。
-
-### 崩溃安全写入顺序
-
-```
-内存 patch → 写 .html.tmp → rename() → 写 _state.json
+```bash
+cargo run --release -- ./notes/chapter01.md
 ```
 
-先写 HTML，再写 state。这样任何时刻崩溃的最坏后果是"多调一次 API 重翻"，而不是"state 说完成但 HTML 永远是占位符"的不可恢复空洞。`rename()` 是 POSIX 原子操作，HTML 文件不会出现半写状态。
+### 4. 处理 TXT
 
-### 输出文件命名
-
-文件名来自 epub **内部 metadata 的书名**（`mdata("title")`），经 `slugify()` 处理为 URL 安全格式，与 epub 文件名无关。同一本书无论文件名如何（如 Anna's Archive 附加了哈希、ISBN 等），只要书名 metadata 一致，输出文件名就一致，state.json 可复用。
-
----
-
-
-
-```
-epub-reader/
-├── Cargo.toml
-└── src/
-    ├── main.rs          # 主流程：扫描 epub → 解析 → 生成 HTML → LLM 翻译
-    ├── types.rs         # 核心数据结构（Book / Paragraph / LlmResponse 等）
-    ├── epub_parser.rs   # epub 解析：spine 遍历 + HTML 段落提取
-    ├── html_gen.rs      # HTML 生成（骨架）、段落块渲染、原地 patch
-    ├── llm_client.rs    # Anthropic Messages API 封装
-    └── state.rs         # 断点续传状态读写（JSON 文件）
+```bash
+cargo run --release -- ./draft.txt
 ```
 
----
+### 5. TXT 按每行强制分段
 
-## 协议详解
+适合诗歌、逐行台词、OCR 后的短句文本：
 
-### 1. 段落 ID 规范
-
-每个段落在整个书中拥有**全局唯一 ID**，格式：
-
-```
-{book-slug}-ch{chapter:03}-p{para:04}
+```bash
+cargo run --release -- --txt-hard-linebreaks ./draft.txt
 ```
 
-示例：
+### 6. 控制并发和节流
 
-```
-overlord-light-novels-01-the-undead-king-ch002-p0017
-│                                          │    │
-│                                          │    └─ 本章内第 17 段（4位补零，每章从 p0000 重新计数）
-│                                          └────── 第 2 章（3位补零，从 ch000 开始）
-└───────────────────────────────────────── 书名 slug（由 epub metadata title 生成，URL 安全）
+```bash
+cargo run --release -- --jobs 3 --request-delay-ms 250 ./books
 ```
 
-> **注意**：`p` 是**章内**序号，不是全书累计序号。进度条显示的全书计数和 ID 里的 `p` 是两个不同的数字。
+### 7. 离线重建 HTML
 
-这个 ID 同时用于：
-- HTML `<div>` 的 `id` 属性（可通过 `#overlord-...-ch002-p0017` 锚点直接跳转）
-- `_state.json` 中的 key（续传时判断哪些段落已完成）
+不调 API，只根据已有 `*_state.json` 重新生成 HTML：
 
----
-
-### 2. HTML 占位符格式
-
-每个段落在 HTML 中渲染为如下结构：
-
-```html
-<!-- 翻译前（data-status="pending"，左边框为灰色） -->
-<div class="para-block" id="overlord-...-ch002-p0017" data-status="pending">
-  <p class="original-text">原文英文段落...</p>
-
-  <details class="ai-section translation-section">
-    <summary>🈳 译文</summary>
-    <div class="ai-content"><!-- FILL:translation --></div>
-  </details>
-
-  <details class="ai-section vocab-section">
-    <summary>📚 词汇 (IELTS 6.5+)</summary>
-    <div class="ai-content"><!-- FILL:vocab --></div>
-  </details>
-
-  <details class="ai-section chunk-section">
-    <summary>🔗 常用短语 / Chunks</summary>
-    <div class="ai-content"><!-- FILL:chunks --></div>
-  </details>
-</div>
-
-<!-- 翻译后（data-status="done"，左边框变为绿色） -->
-<div class="para-block" id="overlord-...-ch002-p0017" data-status="done">
-  <p class="original-text">原文英文段落...</p>
-
-  <details class="ai-section translation-section">
-    <summary>🈳 译文</summary>
-    <div class="ai-content"><p>中文翻译内容...</p></div>
-  </details>
-
-  <details class="ai-section vocab-section">
-    <summary>📚 词汇 (IELTS 6.5+)</summary>
-    <div class="ai-content">
-      <table class="vocab-table">
-        <thead><tr><th>单词</th><th>音标</th><th>词性</th><th>释义</th><th>例句</th></tr></thead>
-        <tbody>
-          <tr>
-            <td class="word">ephemeral</td>
-            <td class="ipa">/ɪˈfem.ər.əl/</td>
-            <td class="pos">adj.</td>
-            <td>短暂的，转瞬即逝的</td>
-            <td class="example"><em>Fame is ephemeral, but art endures.</em></td>
-          </tr>
-          <!-- 更多词汇... -->
-        </tbody>
-      </table>
-    </div>
-  </details>
-
-  <details class="ai-section chunk-section">
-    <summary>🔗 常用短语 / Chunks</summary>
-    <div class="ai-content">
-      <ul class="chunk-list">
-        <li>
-          <span class="chunk-phrase">fade into obscurity</span>
-          <span class="chunk-cn">（逐渐被遗忘，淡出视野）</span><br>
-          <em class="chunk-example">Many great artists fade into obscurity after death.</em>
-        </li>
-      </ul>
-    </div>
-  </details>
-</div>
+```bash
+cargo run --release -- --rebuild ./books ./output
 ```
 
-**填空定位方式**：程序在 HTML 字符串中搜索 `id="{para_id}"` 定位到段落块，然后用计数括号匹配算法找到对应的 `</div>` 闭合标签，整块替换。
+> `--rebuild` 需要使用和之前相同的输入源与输出目录，才能找到对应的 state 文件。
 
----
+## 命令行用法
 
-### 3. LLM 请求/响应协议
+```text
+Usage: epub-reader [OPTIONS] <INPUT> [OUTPUT]
 
-#### System Prompt 摘要
+Arguments:
+  <INPUT>   Input file or directory (.epub/.md/.markdown/.txt)
+  [OUTPUT]  Output directory for HTML and state files [default: output]
 
-Claude 被要求以**纯 JSON**（无 markdown 代码块）回复，结构如下：
-
-```json
-{
-  "translation": "完整中文翻译，自然流畅，保留原著风格",
-  "vocabulary": [
-    {
-      "word":    "单词或词组",
-      "ipa":     "IPA 音标",
-      "pos":     "词性（n./v./adj./adv./phrase）",
-      "cn":      "中文释义",
-      "example": "英文例句"
-    }
-  ],
-  "chunks": [
-    {
-      "chunk":   "地道短语/搭配/句型",
-      "cn":      "中文释义及用法说明",
-      "example": "英文例句"
-    }
-  ]
-}
+Options:
+      --rebuild
+          Rebuild HTML from existing state files without API calls
+      --jobs <JOBS>
+          Maximum number of concurrent translation requests [default: 2]
+      --request-delay-ms <REQUEST_DELAY_MS>
+          Delay in milliseconds before launching each translation request [default: 0]
+      --min-paragraph-chars <MIN_PARAGRAPH_CHARS>
+          Minimum characters required for a text block without sentence punctuation [default: 2]
+      --title-max-words <TITLE_MAX_WORDS>
+          Maximum words to treat a short line as a book title candidate [default: 12]
+      --heading-max-words <HEADING_MAX_WORDS>
+          Maximum words to treat an uppercase short line as a heading [default: 8]
+      --txt-hard-linebreaks
+          In .txt files, treat each non-empty line as its own paragraph
+      --txt-no-sentence-split
+          In .txt files, do not start a new paragraph after sentence-ending punctuation
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 ```
 
-#### 选词标准
+## 支持的输入格式
 
-- `vocabulary`：仅选 **IELTS 难度 ≥ 6.5（C1/C2）** 的词汇，每段 3~8 个，跳过基础词汇
-- `chunks`：选 2~5 个母语者常用的搭配、固定表达或有学习价值的句型
+### EPUB
 
-#### 错误容错
+- 读取 spine 顺序内容
+- 优先提取 HTML 中的 `p`、`blockquote`、`li`
+- 如果正文结构比较怪，会尝试用 `div` 做回退提取
+- 会过滤部分目录页、页码页、导航项
 
-- 如果模型意外包裹了 ` ```json ` 代码块，程序自动剥离
-- 单段 JSON 解析失败时：跳过该段，打印警告，继续下一段
-- 网络/API 错误：最多重试 3 次，指数退避（2s、4s、6s）
+### Markdown
 
----
+- 支持读取 YAML frontmatter 中的 `title`
+- 如果没有 frontmatter 标题，首个合适的 `# H1` 会作为书名
+- `H1-H3` 会优先视为章节标题
+- 普通段落和列表项会被当作可翻译文本块
 
-### 4. 断点续传机制
+### TXT
 
-```
-第一次运行：
-  ┌─────────────┐    解析 epub     ┌─────────────┐
-  │  .epub 文件  │ ─────────────── │  Book 结构   │
-  └─────────────┘                  └──────┬──────┘
-                                          │ 生成骨架 HTML
-                                   ┌──────▼──────┐
-                                   │  .html 文件  │  ← 全部 data-status="pending"
-                                   └─────────────┘
-                                   ┌─────────────┐
-                                   │ _state.json  │  ← {}（空）
-                                   └──────┬──────┘
-                                          │ 逐段调用 Claude API
-                                          │ 每段完成后：
-                                          │  1. patch HTML（替换占位符）
-                                          │  2. 写 _state.json（记录完成）
-                                         ...
-                    ← Ctrl+C 中断 →
-第二次运行（续传/重复运行）：
-  1. 从磁盘读取已有 .html 文件（保留所有已填充内容）
-  2. 读取 _state.json，计算 pending = 全部段落 − 已完成段落
-  3. 仅对 pending 段落调用 Claude API 翻译并 patch HTML
-  4. 若全部段落已完成：打印 "All paragraphs already translated." 并跳过（不调用 API）
+- 空行、场景分隔符会触发分段
+- 会尝试识别诸如 `Chapter 1`、`第十二章`、`PROLOGUE` 之类标题
+- 默认会在句末和缩进位置切段
+- 可通过 `--txt-hard-linebreaks` 和 `--txt-no-sentence-split` 调整规则
+
+## 常用场景
+
+### 网络小说 / 轻小说 EPUB
+
+```bash
+cargo run --release -- --jobs 3 ./novels
 ```
 
-**崩溃安全写入顺序**：`内存patch → 写HTML.tmp → rename → 写state`
-即使在任意步骤崩溃，都不会出现"state说完成但HTML是占位符"的永久空洞。
+### Obsidian / Typora 的 Markdown 笔记
 
-状态文件示例（`_state.json`）：
-
-```json
-{
-  "completed": {
-    "overlord-...-ch000-p0000": {
-      "translation": "...",
-      "vocabulary": [...],
-      "chunks": [...]
-    },
-    "overlord-...-ch000-p0001": { ... },
-    ...
-  }
-}
+```bash
+cargo run --release -- ./notes/book-summary.md
 ```
 
----
+### OCR 导出的纯文本
 
-### 5. 原子写入机制
-
-每次更新 HTML 文件时，严格按以下顺序操作：
-
-```
-内存 patch HTML → 写 .html.tmp → rename(.html.tmp → .html) → 写 _state.json
+```bash
+cargo run --release -- --txt-hard-linebreaks --min-paragraph-chars 1 ./ocr.txt
 ```
 
-**顺序至关重要**：先写 HTML，再写 state。
+### 已经跑了一半，继续执行
 
-| 崩溃时机 | 后果 | 下次运行 |
-|---|---|---|
-| HTML 写完前崩溃 | state 未记录该段 | 重新翻译该段（多耗一次 API，无数据丢失）|
-| HTML 写完、state 未写完 | HTML 已填好 | 重新翻译并覆盖，结果一样（多耗一次 API）|
-| state 写完后崩溃 | 完全记录 | 直接跳过 ✓ |
+```bash
+cargo run --release -- ./books ./output
+```
 
-反过来（先写 state 再写 HTML）如果在两者之间崩溃，state 记录"已完成"但 HTML 仍是 `<!-- FILL:xxx -->`，**该段永远不会被填，造成永久空洞**。
+重新执行相同命令即可。程序会自动读取 `*_state.json`，只翻译未完成段落。
 
-rename() 系统调用本身是原子操作（POSIX 保证），所以 `.html` 文件要么是旧版本要么是新版本，不会出现半写状态。
+## 输出文件
 
----
+默认输出目录是 `./output`。
 
-## HTML 样式说明
+```text
+output/
+├── book-slug.html
+├── book-slug_state.json
+├── another-book.html
+└── another-book_state.json
+```
 
-采用 **Tokyo Night** 配色方案（深色主题），无需外部 CSS 文件，样式全部内联。
+- `*.html`
+  最终阅读文件
+- `*_state.json`
+  断点续传状态文件，保存每个段落的 AI 响应
 
-| 元素 | 视觉效果 |
-|---|---|
-| 未翻译段落 | 左侧灰色竖线 |
-| 已翻译段落 | 左侧绿色竖线 |
-| 译文面板 | 深蓝底色，青色文字 |
-| 词汇面板 | 深紫底色，紫色标题 |
-| 短语面板 | 深绿底色，绿色标题 |
-| 单词 | 黄色高亮 |
-| 音标 | 等宽字体，灰色 |
-| 词性 | 橙色斜体 |
-| 顶部进度条 | 随滚动位置实时更新 |
+> 不要随意删除 `*_state.json`，除非你确定要从头重跑。
 
----
+## 如何继续 / 重跑
 
-## 输出文件说明
+### 继续跑
 
-| 文件 | 用途 | 可否删除 |
-|---|---|---|
-| `{slug}.html` | 最终阅读文件，用浏览器打开 | 可删除后重新生成 |
-| `{slug}_state.json` | 翻译进度存档 | **不要删除**，删除后下次运行将从头翻译 |
+直接重复上次命令：
 
----
+```bash
+cargo run --release -- ./books ./output
+```
 
-## 词汇与短语标准
+### 重新生成 HTML，但不重调 API
 
-### IELTS 难度参考（词汇选取标准）
+```bash
+cargo run --release -- --rebuild ./books ./output
+```
 
-| 级别 | CEFR | 典型词汇示例 |
-|---|---|---|
-| 选取范围 ✓ | C1/C2 | ephemeral, nefarious, implacable, brandish |
-| 不选 ✗ | A1–B2 | good, important, suddenly, however |
+### 完全重来
 
-### Chunk 选取原则
+删除对应的：
 
-优先选取：
-1. **动词短语搭配**：`hold one's ground`、`lay siege to`
-2. **固定表达**：`as if by instinct`、`at the mercy of`
-3. **文学句型**：倒装、分词结构等值得模仿的写法
-4. **IELTS/TOEFL 写作中可用的高分表达**
+- `output/<slug>.html`
+- `output/<slug>_state.json`
+
+然后再重新运行。
+
+## 工作原理
+
+核心思路不是“靠位置对齐”，而是“靠段落 ID 对齐”。
+
+```text
+输入文件
+  └─→ parse_*()
+        └─→ Book / Chapter / Paragraph(id, text)
+                      │
+                      ├─→ html_gen: 生成段落骨架
+                      ├─→ pending: 需要请求 LLM 的段落
+                      └─→ state.json: para_id -> LlmResponse
+```
+
+当前流程：
+
+1. 解析输入文件，得到统一的 `Book` 结构
+2. 生成 HTML 骨架，每段预留译文 / 词汇 / chunks 占位区
+3. 并发请求 Claude，返回结构化 JSON
+4. 收到结果后按 `para_id` patch HTML
+5. 先原子写入 HTML，再写入 `*_state.json`
+
+这样做的结果是：
+
+- 即使并发请求完成顺序不同，也不会错位
+- 中途崩溃时，最坏情况通常只是某段需要重翻
+- `--rebuild` 可以完全跳过 API，只根据 state 恢复 HTML
+
+## 项目结构
+
+```text
+src/
+├── main.rs            # CLI 参数、主流程、并发翻译调度
+├── parser.rs          # 输入格式分发
+├── parse_utils.rs     # 通用分段规则、标题识别、BookBuilder
+├── epub_parser.rs     # EPUB 解析
+├── markdown_parser.rs # Markdown 解析
+├── text_parser.rs     # TXT 解析
+├── html_gen.rs        # HTML 生成与段落 patch
+├── llm_client.rs      # Anthropic Messages API 客户端
+├── state.rs           # state.json 读写
+├── fs_utils.rs        # 原子写文件
+├── ui.rs              # 终端输出样式
+└── types.rs           # Book / Paragraph / LlmResponse 等结构
+```
+
+## 注意事项
+
+- `ANTHROPIC_AUTH_TOKEN` 只在正常翻译模式下需要；`--rebuild` 不需要
+- 如果你修改了原始输入文件，段落 ID 可能变化，旧 state 可能无法完全复用
+- `--jobs` 不是越大越好，通常 `2~4` 比较稳
+- 对排版特别碎的 TXT，建议试试：
+  - `--txt-hard-linebreaks`
+  - `--min-paragraph-chars 1`
+  - `--txt-no-sentence-split`
+
+## 开发与验证
+
+```bash
+cargo fmt
+cargo check
+cargo test
+```
+
+如果想看当前 CLI 帮助：
+
+```bash
+cargo run -- --help
+```

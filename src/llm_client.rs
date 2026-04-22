@@ -79,6 +79,7 @@ Rules:
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct LlmClient {
     client: Client,
     api_key: String,
@@ -101,11 +102,7 @@ impl LlmClient {
             match self.call_api(text).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => {
-                    eprintln!(
-                        "  [llm] attempt {}/3 failed: {}",
-                        attempt,
-                        e
-                    );
+                    eprintln!("  [llm] attempt {}/3 failed: {}", attempt, e);
                     last_err = e;
                     tokio::time::sleep(std::time::Duration::from_secs(2 * attempt)).await;
                 }

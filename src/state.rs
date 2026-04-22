@@ -25,10 +25,6 @@ impl State {
     pub fn mark_done(&mut self, para_id: String, resp: LlmResponse) {
         self.completed.insert(para_id, resp);
     }
-
-    pub fn get(&self, para_id: &str) -> Option<&LlmResponse> {
-        self.completed.get(para_id)
-    }
 }
 
 pub fn state_path(output_dir: &Path, book_slug: &str) -> PathBuf {
@@ -47,6 +43,6 @@ pub fn load_state(path: &Path) -> Result<State> {
 
 pub fn save_state(path: &Path, state: &State) -> Result<()> {
     let content = serde_json::to_string_pretty(state)?;
-    std::fs::write(path, content)?;
+    crate::fs_utils::atomic_write(path, content.as_bytes())?;
     Ok(())
 }

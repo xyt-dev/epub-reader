@@ -1,118 +1,243 @@
 mod epub_parser;
+mod fs_utils;
 mod html_gen;
 mod llm_client;
+mod markdown_parser;
+mod parse_utils;
+mod parser;
 mod state;
+mod text_parser;
 mod types;
+mod ui;
 
 use anyhow::{Context, Result};
-use indicatif::{ProgressBar, ProgressStyle};
+use clap::{ArgAction, Parser};
+use indicatif::ProgressBar;
 use llm_client::LlmClient;
+use parse_utils::ParseOptions;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+use tokio::task::JoinSet;
 
-// ─── Entry point ─────────────────────────────────────────────────────────────
+#[derive(Parser, Debug)]
+#[command(
+    name = "epub-reader",
+    version,
+    about = "Convert EPUB/Markdown/Text books into annotated HTML with AI translation.",
+    long_about = None,
+    after_help = "Examples:\n  epub-reader ../Books\n  epub-reader novel.epub\n  epub-reader notes.md ./out\n  epub-reader --jobs 3 novel.epub\n  epub-reader --txt-hard-linebreaks notes.txt ./out\n  epub-reader --rebuild ../Books ./out"
+)]
+struct Args {
+    #[arg(
+        value_name = "INPUT",
+        help = "Input file or directory (.epub/.md/.markdown/.txt)"
+    )]
+    input: PathBuf,
+
+    #[arg(
+        value_name = "OUTPUT",
+        default_value = "output",
+        help = "Output directory for HTML and state files"
+    )]
+    output_dir: PathBuf,
+
+    #[arg(
+        long,
+        help = "Rebuild HTML from existing state files without API calls"
+    )]
+    rebuild: bool,
+
+    #[arg(
+        long,
+        default_value_t = 2,
+        help = "Maximum number of concurrent translation requests"
+    )]
+    jobs: usize,
+
+    #[arg(
+        long,
+        default_value_t = 0,
+        help = "Delay in milliseconds before launching each translation request"
+    )]
+    request_delay_ms: u64,
+
+    #[arg(
+        long,
+        default_value_t = 2,
+        help = "Minimum characters required for a text block without sentence punctuation"
+    )]
+    min_paragraph_chars: usize,
+
+    #[arg(
+        long,
+        default_value_t = 12,
+        help = "Maximum words to treat a short line as a book title candidate"
+    )]
+    title_max_words: usize,
+
+    #[arg(
+        long,
+        default_value_t = 8,
+        help = "Maximum words to treat an uppercase short line as a heading"
+    )]
+    heading_max_words: usize,
+
+    #[arg(
+        long,
+        help = "In .txt files, treat each non-empty line as its own paragraph"
+    )]
+    txt_hard_linebreaks: bool,
+
+    #[arg(
+        long = "txt-no-sentence-split",
+        action = ArgAction::SetFalse,
+        default_value_t = true,
+        help = "In .txt files, do not start a new paragraph after sentence-ending punctuation"
+    )]
+    txt_split_on_sentence_end: bool,
+}
+
+#[derive(Debug, Clone)]
+struct JobOutcome {
+    book_title: String,
+    total_paragraphs: usize,
+    completed: usize,
+    html_path: PathBuf,
+    state_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct TranslationOptions {
+    jobs: usize,
+    request_delay: Duration,
+}
+
+#[derive(Debug, Clone)]
+struct PendingParagraph {
+    para_id: String,
+    para_text: String,
+}
+
+#[derive(Debug)]
+struct TranslationTaskResult {
+    para_id: String,
+    outcome: std::result::Result<types::LlmResponse, String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let args = Args::parse();
+    validate_args(&args)?;
+    std::fs::create_dir_all(&args.output_dir)?;
 
-    // Check for --rebuild flag anywhere in args
-    let rebuild = args.iter().any(|a| a == "--rebuild");
+    let parse_options = parse_options_from_args(&args);
+    let translation_options = TranslationOptions {
+        jobs: args.jobs,
+        request_delay: Duration::from_millis(args.request_delay_ms),
+    };
 
-    // Path: first non-flag arg (required) — can be a .epub file or a directory
-    let path_arg = args
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with("--"))
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!(
-            "Usage: epub-reader [--rebuild] <epub_file_or_dir> [output_dir]\n\
-             Examples:\n  epub-reader ../LightNovels\n  epub-reader book.epub\n  epub-reader ../LightNovels ./out"
-        ))?;
+    ui::print_banner(&args.output_dir, args.rebuild);
+    ui::print_kv("parse-rules", parse_options.summary());
+    if !args.rebuild {
+        ui::print_kv(
+            "llm",
+            format!(
+                "{} job(s) · {}ms launch delay",
+                translation_options.jobs, args.request_delay_ms
+            ),
+        );
+    }
 
-    // Optional second non-flag arg overrides output directory (default: ./output)
-    let output_dir: PathBuf = args
-        .iter()
-        .skip(1)
-        .filter(|a| !a.starts_with("--"))
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("output"));
-    std::fs::create_dir_all(&output_dir)?;
-
-    // Collect epub(s): single file or recursive directory scan
-    let epubs = collect_epubs(&path_arg)?;
-    if epubs.is_empty() {
-        eprintln!("No .epub files found under {}", path_arg.display());
+    let inputs = collect_inputs(&args.input)?;
+    if inputs.is_empty() {
+        ui::print_error(format!(
+            "No supported input files ({}) found under {}",
+            parser::supported_extensions_summary(),
+            args.input.display()
+        ));
         return Ok(());
     }
-    println!("Found {} epub file(s)", epubs.len());
+    ui::print_input_summary(&args.input, inputs.len());
 
-    if rebuild {
-        println!("Mode: --rebuild (从 state.json 重建 HTML，不调用 API)");
-        for epub_path in &epubs {
-            println!("\n─────────────────────────────────────────");
-            println!("Rebuilding: {}", epub_path.display());
-            match rebuild_html(epub_path, &output_dir) {
-                Ok(_) => println!("  ✓ Done"),
-                Err(e) => eprintln!("  ✗ Error: {:#}", e),
+    let client = if args.rebuild {
+        None
+    } else {
+        Some(LlmClient::new(
+            std::env::var("ANTHROPIC_AUTH_TOKEN")
+                .context("ANTHROPIC_AUTH_TOKEN env var not set")?,
+        ))
+    };
+
+    let mut succeeded = 0usize;
+    let mut failed = 0usize;
+
+    for (idx, input_path) in inputs.iter().enumerate() {
+        ui::print_job_header(idx + 1, inputs.len(), input_path);
+
+        let result = if args.rebuild {
+            rebuild_html(input_path, &args.output_dir, &parse_options)
+        } else {
+            process_input(
+                input_path,
+                &args.output_dir,
+                client.as_ref().unwrap(),
+                &parse_options,
+                &translation_options,
+            )
+            .await
+        };
+
+        match result {
+            Ok(outcome) => {
+                succeeded += 1;
+                ui::print_success(format!(
+                    "{} · {}/{} paragraphs ready",
+                    outcome.book_title, outcome.completed, outcome.total_paragraphs
+                ));
+                ui::print_kv("html", outcome.html_path.display().to_string());
+                if let Some(state_path) = outcome.state_path {
+                    ui::print_kv("state", state_path.display().to_string());
+                }
+            }
+            Err(err) => {
+                failed += 1;
+                ui::print_error(format!("{}: {:#}", input_path.display(), err));
             }
         }
-        return Ok(());
-    }
-    // Normal translation mode — API key required
-    let api_key = std::env::var("ANTHROPIC_AUTH_TOKEN")
-        .context("ANTHROPIC_AUTH_TOKEN env var not set")?;
-    let client = LlmClient::new(api_key);
-
-    for epub_path in &epubs {
-        println!("\n─────────────────────────────────────────");
-        println!("Processing: {}", epub_path.display());
-        match process_epub(epub_path, &output_dir, &client).await {
-            Ok(_) => println!("  ✓ Done"),
-            Err(e) => eprintln!("  ✗ Error: {:#}", e),
-        }
     }
 
+    ui::print_run_summary(succeeded, failed);
     Ok(())
 }
 
-// ─── Rebuild HTML from state.json (no API calls) ─────────────────────────────
+fn rebuild_html(
+    input_path: &Path,
+    output_dir: &Path,
+    parse_options: &ParseOptions,
+) -> Result<JobOutcome> {
+    ui::print_step("parse", "reading source content");
+    let book = parser::parse_book(input_path, parse_options)?;
+    let total_paragraphs: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
+    ui::print_book_summary(&book.title, book.chapters.len(), total_paragraphs);
 
-fn rebuild_html(epub_path: &Path, output_dir: &Path) -> Result<()> {
-    // 1. Parse epub
-    println!("  [1/3] Parsing epub…");
-    let book = epub_parser::parse_epub(epub_path)?;
-    let total_paras: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
-    println!(
-        "  Book: \"{}\" | {} chapters | {} paragraphs",
-        book.title, book.chapters.len(), total_paras
-    );
-
-    // 2. Load state
     let state_path = state::state_path(output_dir, &book.slug);
+    let html_path = output_dir.join(format!("{}.html", book.slug));
+
+    ui::print_step("state", "loading saved responses");
     let st = state::load_state(&state_path)?;
-    println!("  State: {} entries loaded", st.completed.len());
-
-    // 3. Generate fresh HTML skeleton, then patch every completed paragraph
-    println!("  [2/3] Generating HTML skeleton…");
-    let mut html = html_gen::generate_html(&book);
-
-    println!("  [3/3] Patching HTML from state…");
-    let pb = ProgressBar::new(st.completed.len() as u64);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {bar:40.cyan/blue} {pos}/{len} [{elapsed_precise}]",
-        )
-        .unwrap(),
+    ui::print_kv(
+        "loaded",
+        format!("{} cached paragraph(s)", st.completed.len()),
     );
 
-    // Build id→para lookup
-    let para_map: std::collections::HashMap<&str, &types::Paragraph> = book
-        .chapters
-        .iter()
-        .flat_map(|c| c.paragraphs.iter())
-        .map(|p| (p.id.as_str(), p))
-        .collect();
+    ui::print_step("html", "rebuilding from skeleton");
+    let mut html = html_gen::generate_html(&book);
+    let para_map = build_para_map(&book);
+
+    let pb = ProgressBar::new(st.completed.len() as u64);
+    pb.set_style(ui::progress_style(false));
+    pb.enable_steady_tick(Duration::from_millis(80));
 
     for (para_id, resp) in &st.completed {
         if let Some(para) = para_map.get(para_id.as_str()) {
@@ -120,161 +245,252 @@ fn rebuild_html(epub_path: &Path, output_dir: &Path) -> Result<()> {
         }
         pb.inc(1);
     }
-    pb.finish_with_message("done");
+    pb.finish_and_clear();
 
-    // 4. Write HTML (atomic)
-    let html_path = output_dir.join(format!("{}.html", book.slug));
-    let tmp = html_path.with_extension("html.tmp");
-    std::fs::write(&tmp, &html)?;
-    std::fs::rename(&tmp, &html_path)?;
+    fs_utils::atomic_write(&html_path, html.as_bytes())?;
 
-    let done = st.completed.len();
-    println!(
-        "  Rebuilt: {}/{} paragraphs filled",
-        done, total_paras
-    );
-    println!("  HTML  → {}", html_path.display());
-    Ok(())
+    Ok(JobOutcome {
+        book_title: book.title,
+        total_paragraphs,
+        completed: st.completed.len(),
+        html_path,
+        state_path: state_path.exists().then_some(state_path),
+    })
 }
 
-// ─── Per-epub translation pipeline ───────────────────────────────────────────
-
-async fn process_epub(
-    epub_path: &Path,
+async fn process_input(
+    input_path: &Path,
     output_dir: &Path,
     client: &LlmClient,
-) -> Result<()> {
-    // 1. Parse epub → Book
-    println!("  [1/3] Parsing epub…");
-    let book = epub_parser::parse_epub(epub_path)?;
+    parse_options: &ParseOptions,
+    translation_options: &TranslationOptions,
+) -> Result<JobOutcome> {
+    ui::print_step("parse", "reading source content");
+    let book = parser::parse_book(input_path, parse_options)?;
+    let total_paragraphs: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
+    ui::print_book_summary(&book.title, book.chapters.len(), total_paragraphs);
 
-    let total_paras: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
-    println!(
-        "  Book: \"{}\" | {} chapters | {} paragraphs",
-        book.title,
-        book.chapters.len(),
-        total_paras
-    );
-
-    // 2. Generate HTML skeleton (or load existing)
     let html_path = output_dir.join(format!("{}.html", book.slug));
     let state_path = state::state_path(output_dir, &book.slug);
 
-    println!("  [2/3] Generating HTML skeleton…");
+    ui::print_step("html", "loading or creating skeleton");
     let mut html_content = if html_path.exists() {
         std::fs::read_to_string(&html_path)?
     } else {
         let initial_html = html_gen::generate_html(&book);
-        std::fs::write(&html_path, &initial_html)?;
+        fs_utils::atomic_write(&html_path, initial_html.as_bytes())?;
         initial_html
     };
-    println!("  HTML → {}", html_path.display());
 
-    // 3. LLM translation (resumable)
-    println!("  [3/3] Translating paragraphs with Claude…");
+    ui::print_step("state", "loading resumable progress");
     let mut st = state::load_state(&state_path)?;
-    println!("  State: {} (loaded {} entries)", state_path.display(), st.completed.len());
+    ui::print_kv(
+        "loaded",
+        format!("{} cached paragraph(s)", st.completed.len()),
+    );
 
-    let pending: Vec<(&str, &str)> = book
+    let pending: Vec<PendingParagraph> = book
         .chapters
         .iter()
         .flat_map(|c| c.paragraphs.iter())
         .filter(|p| !st.is_done(&p.id) && !p.text.trim().is_empty())
-        .map(|p| (p.id.as_str(), p.text.as_str()))
+        .map(|p| PendingParagraph {
+            para_id: p.id.clone(),
+            para_text: p.text.clone(),
+        })
         .collect();
 
-    let already_done = total_paras - pending.len();
-    println!(
-        "  Progress: {}/{} done, {} remaining",
-        already_done,
-        total_paras,
-        pending.len()
+    let already_done = total_paragraphs.saturating_sub(pending.len());
+    ui::print_kv(
+        "progress",
+        format!("{} done · {} remaining", already_done, pending.len()),
     );
 
     if pending.is_empty() {
-        println!("  All paragraphs already translated.");
-        return Ok(());
+        return Ok(JobOutcome {
+            book_title: book.title,
+            total_paragraphs,
+            completed: already_done,
+            html_path,
+            state_path: state_path.exists().then_some(state_path),
+        });
     }
 
+    ui::print_step("translate", "requesting Claude paragraph by paragraph");
     let pb = ProgressBar::new(pending.len() as u64);
-    pb.set_style(
-        ProgressStyle::with_template(
-            "  {bar:40.cyan/blue} {pos}/{len} [{elapsed_precise}] {msg}",
-        )
-        .unwrap(),
-    );
+    pb.set_style(ui::progress_style(true));
+    pb.enable_steady_tick(Duration::from_millis(80));
 
-    // Build an id→para lookup for patching HTML
-    let para_map: std::collections::HashMap<&str, &types::Paragraph> = book
-        .chapters
-        .iter()
-        .flat_map(|c| c.paragraphs.iter())
-        .map(|p| (p.id.as_str(), p))
-        .collect();
+    let para_map = build_para_map(&book);
+    let mut join_set = JoinSet::new();
+    let mut pending_iter = pending.into_iter();
+    let mut launched_any = false;
 
-    for (para_id, para_text) in &pending {
-        pb.set_message(format!("id={}", para_id));
+    fill_translation_queue(
+        &mut join_set,
+        &mut pending_iter,
+        client,
+        translation_options,
+        &mut launched_any,
+    )
+    .await;
 
-        match client.translate_paragraph(para_text).await {
+    while let Some(joined) = join_set.join_next().await {
+        let task = joined.context("translation worker panicked")?;
+
+        match task.outcome {
             Ok(resp) => {
-                // Patch HTML in-memory
-                if let Some(para) = para_map.get(para_id) {
+                if let Some(para) = para_map.get(task.para_id.as_str()) {
                     html_content = html_gen::patch_html(&html_content, para, &resp);
                 }
 
-                // Write HTML first (atomic: write tmp → rename)
-                let tmp = html_path.with_extension("html.tmp");
-                std::fs::write(&tmp, &html_content)?;
-                std::fs::rename(&tmp, &html_path)?;
-
-                // Only after HTML is safely on disk, record in state
-                st.mark_done(para_id.to_string(), resp);
+                fs_utils::atomic_write(&html_path, html_content.as_bytes())?;
+                st.mark_done(task.para_id.clone(), resp);
                 state::save_state(&state_path, &st)?;
             }
-            Err(e) => {
-                pb.println(format!("  [WARN] skipping {}: {:#}", para_id, e));
+            Err(err) => {
+                pb.println(ui::warn_text(format!("skipping {}: {}", task.para_id, err)));
             }
         }
         pb.inc(1);
-    }
-    pb.finish_with_message("done");
 
-    println!("  State → {}", state_path.display());
-    println!("  HTML  → {}", html_path.display());
+        fill_translation_queue(
+            &mut join_set,
+            &mut pending_iter,
+            client,
+            translation_options,
+            &mut launched_any,
+        )
+        .await;
+
+        if join_set.is_empty() {
+            pb.set_message("finalizing".to_string());
+        } else {
+            pb.set_message(format!(
+                "active={} · last={}",
+                join_set.len(),
+                abbreviate_para_id(&task.para_id)
+            ));
+        }
+    }
+    pb.finish_and_clear();
+
+    Ok(JobOutcome {
+        book_title: book.title,
+        total_paragraphs,
+        completed: st.completed.len(),
+        html_path,
+        state_path: state_path.exists().then_some(state_path),
+    })
+}
+
+fn build_para_map<'a>(book: &'a types::Book) -> HashMap<&'a str, &'a types::Paragraph> {
+    book.chapters
+        .iter()
+        .flat_map(|c| c.paragraphs.iter())
+        .map(|p| (p.id.as_str(), p))
+        .collect()
+}
+
+async fn fill_translation_queue(
+    join_set: &mut JoinSet<TranslationTaskResult>,
+    pending_iter: &mut std::vec::IntoIter<PendingParagraph>,
+    client: &LlmClient,
+    options: &TranslationOptions,
+    launched_any: &mut bool,
+) {
+    while join_set.len() < options.jobs {
+        let Some(job) = pending_iter.next() else {
+            break;
+        };
+
+        if *launched_any && !options.request_delay.is_zero() {
+            tokio::time::sleep(options.request_delay).await;
+        }
+
+        let client = client.clone();
+        join_set.spawn(async move {
+            let para_id = job.para_id;
+            let outcome = client
+                .translate_paragraph(&job.para_text)
+                .await
+                .map_err(|err| format!("{:#}", err));
+
+            TranslationTaskResult { para_id, outcome }
+        });
+        *launched_any = true;
+    }
+}
+
+fn parse_options_from_args(args: &Args) -> ParseOptions {
+    ParseOptions {
+        min_paragraph_chars: args.min_paragraph_chars,
+        title_max_words: args.title_max_words,
+        short_heading_max_words: args.heading_max_words,
+        txt_hard_linebreaks: args.txt_hard_linebreaks,
+        txt_split_on_sentence_end: args.txt_split_on_sentence_end,
+    }
+}
+
+fn validate_args(args: &Args) -> Result<()> {
+    if args.jobs == 0 {
+        anyhow::bail!("--jobs must be at least 1");
+    }
+    if args.jobs > 16 {
+        anyhow::bail!("--jobs must be 16 or smaller");
+    }
+    if args.min_paragraph_chars == 0 {
+        anyhow::bail!("--min-paragraph-chars must be at least 1");
+    }
+    if args.title_max_words == 0 {
+        anyhow::bail!("--title-max-words must be at least 1");
+    }
+    if args.heading_max_words == 0 {
+        anyhow::bail!("--heading-max-words must be at least 1");
+    }
     Ok(())
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+fn abbreviate_para_id(para_id: &str) -> String {
+    const MAX_LEN: usize = 28;
+    if para_id.len() <= MAX_LEN {
+        return para_id.to_string();
+    }
+    format!("…{}", &para_id[para_id.len() - (MAX_LEN - 1)..])
+}
 
-fn collect_epubs(path: &Path) -> Result<Vec<PathBuf>> {
+fn collect_inputs(path: &Path) -> Result<Vec<PathBuf>> {
     if !path.exists() {
         anyhow::bail!("Path '{}' does not exist.", path.display());
     }
-    // Single epub file
+
     if path.is_file() {
-        if path.extension().map(|e| e == "epub").unwrap_or(false) {
-            return Ok(vec![path.to_path_buf()]);
-        }
-        anyhow::bail!("'{}' is not an .epub file.", path.display());
+        parser::validate_requested_input(path)?;
+        return Ok(vec![path.to_path_buf()]);
     }
-    // Directory: recursive scan
-    let mut epubs = Vec::new();
-    visit_dir(path, &mut epubs)?;
-    if epubs.is_empty() {
-        anyhow::bail!("No .epub files found in '{}'.", path.display());
+
+    let mut inputs = Vec::new();
+    visit_dir(path, &mut inputs)?;
+    if inputs.is_empty() {
+        anyhow::bail!(
+            "No supported input files ({}) found in '{}'.",
+            parser::supported_extensions_summary(),
+            path.display()
+        );
     }
-    epubs.sort();
-    Ok(epubs)
+
+    inputs.sort();
+    Ok(inputs)
 }
 
-fn visit_dir(dir: &Path, epubs: &mut Vec<PathBuf>) -> Result<()> {
+fn visit_dir(dir: &Path, inputs: &mut Vec<PathBuf>) -> Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            visit_dir(&path, epubs)?;
-        } else if path.extension().map(|e| e == "epub").unwrap_or(false) {
-            epubs.push(path);
+            visit_dir(&path, inputs)?;
+        } else if parser::is_enabled_input(&path) {
+            inputs.push(path);
         }
     }
     Ok(())

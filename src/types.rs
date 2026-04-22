@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// A single paragraph extracted from an epub chapter.
+/// A single paragraph extracted from a source chapter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paragraph {
     /// Unique ID: "{book_slug}-ch{chapter:03}-p{para:04}"
@@ -9,7 +9,7 @@ pub struct Paragraph {
     pub text: String,
 }
 
-/// A chapter (spine item) from an epub.
+/// A chapter extracted from the source document.
 #[derive(Debug, Clone)]
 pub struct Chapter {
     pub index: usize,
@@ -17,7 +17,7 @@ pub struct Chapter {
     pub paragraphs: Vec<Paragraph>,
 }
 
-/// A parsed book.
+/// A parsed book, regardless of input format.
 #[derive(Debug, Clone)]
 pub struct Book {
     pub slug: String,
