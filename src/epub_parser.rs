@@ -126,8 +126,7 @@ fn extract_primary_block_text(element: ElementRef<'_>, options: &ParseOptions) -
     }
 
     let tag = element.value().name();
-    if matches!(tag, "li" | "blockquote")
-        && has_descendant_tag(element, &["p", "li", "blockquote"])
+    if matches!(tag, "li" | "blockquote") && has_descendant_tag(element, &["p", "li", "blockquote"])
     {
         return None;
     }

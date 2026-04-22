@@ -118,7 +118,7 @@ pub fn progress_style(with_message: bool) -> ProgressStyle {
     ProgressStyle::with_template(template)
         .unwrap()
         .progress_chars("█▉▊▋▌▍▎▏  ")
-        .tick_strings(&["⠁", "⠂", "⠄", "⠂"])
+        .tick_strings(&["⠁", "⠂", "⠄", "⡀", "⢀", "⠠", "⠐", "⠈", "⠁"])
 }
 
 pub fn warn_text(message: impl AsRef<str>) -> String {

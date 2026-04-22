@@ -315,7 +315,10 @@ mod tests {
     #[test]
     fn detects_common_heading_patterns() {
         let options = ParseOptions::default();
-        assert!(looks_like_chapter_heading("Chapter 12 - The Tomb", &options));
+        assert!(looks_like_chapter_heading(
+            "Chapter 12 - The Tomb",
+            &options
+        ));
         assert!(looks_like_chapter_heading("第十二章 王都", &options));
         assert!(looks_like_chapter_heading("PROLOGUE", &options));
         assert!(!looks_like_chapter_heading("He looked at her.", &options));
@@ -323,13 +326,19 @@ mod tests {
 
     #[test]
     fn strips_markdown_heading_prefixes() {
-        assert_eq!(strip_markdown_heading_prefix("## Chapter 1 ##"), "Chapter 1");
+        assert_eq!(
+            strip_markdown_heading_prefix("## Chapter 1 ##"),
+            "Chapter 1"
+        );
     }
 
     #[test]
     fn title_candidates_are_short_and_not_sentences() {
         let options = ParseOptions::default();
-        assert!(looks_like_book_title_candidate("Overlord Volume 1", &options));
+        assert!(looks_like_book_title_candidate(
+            "Overlord Volume 1",
+            &options
+        ));
         assert!(!looks_like_book_title_candidate(
             "He stepped into the throne room.",
             &options

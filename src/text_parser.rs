@@ -126,8 +126,7 @@ fn ends_sentence(line: &str) -> bool {
         .map(|c| {
             matches!(
                 c,
-                '.'
-                    | '!'
+                '.' | '!'
                     | '?'
                     | '。'
                     | '！'
@@ -188,8 +187,8 @@ Chapter 2
 The second paragraph.
 "#;
 
-        let book = parse_text_str(raw, Path::new("book.txt"), "book", &ParseOptions::default())
-            .unwrap();
+        let book =
+            parse_text_str(raw, Path::new("book.txt"), "book", &ParseOptions::default()).unwrap();
         assert_eq!(book.title, "Overlord Volume 1");
         assert_eq!(book.chapters.len(), 2);
         assert_eq!(book.chapters[0].title.as_deref(), Some("Chapter 1"));
