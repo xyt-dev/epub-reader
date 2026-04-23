@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Parser, Tag};
 use std::path::Path;
 
 use crate::parse_utils::{
@@ -7,11 +7,12 @@ use crate::parse_utils::{
 };
 use crate::types::Book;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ActiveBlockKind {
     Heading(u8),
     Paragraph,
     ListItem,
+    CodeBlock(Option<String>),
 }
 
 #[derive(Debug, Clone)]
@@ -84,7 +85,11 @@ fn parse_markdown_str(
             }
             Event::SoftBreak | Event::HardBreak => {
                 if let Some(block) = active.as_mut() {
-                    block.text.push(' ');
+                    if matches!(block.kind, ActiveBlockKind::CodeBlock(_)) {
+                        block.text.push('\n');
+                    } else {
+                        block.text.push(' ');
+                    }
                 }
             }
             _ => {}
@@ -116,18 +121,29 @@ fn handle_start(tag: Tag<'_>, active: &mut Option<ActiveBlock>) {
         Tag::Item => {
             *active = Some(ActiveBlock::new(ActiveBlockKind::ListItem));
         }
+        Tag::CodeBlock(kind) => {
+            *active = Some(ActiveBlock::new(ActiveBlockKind::CodeBlock(
+                code_block_language(kind),
+            )));
+        }
         _ => {}
     }
 }
 
 fn push_block(block: ActiveBlock, builder: &mut BookBuilder, options: &ParseOptions) {
-    let text = block.text.trim();
-    if text.is_empty() {
-        return;
-    }
-
     match block.kind {
+        ActiveBlockKind::CodeBlock(language) => {
+            let text = block.text.trim_matches('\n');
+            if text.is_empty() {
+                return;
+            }
+            builder.push_code_block(text, language);
+        }
         ActiveBlockKind::Heading(level) if level == 1 && builder.is_pristine() => {
+            let text = block.text.trim();
+            if text.is_empty() {
+                return;
+            }
             if !looks_like_chapter_heading(text, options) {
                 builder.set_book_title_if_absent(text);
             } else {
@@ -135,11 +151,31 @@ fn push_block(block: ActiveBlock, builder: &mut BookBuilder, options: &ParseOpti
             }
         }
         ActiveBlockKind::Heading(level) if level <= 3 => {
+            let text = block.text.trim();
+            if text.is_empty() {
+                return;
+            }
             builder.push_chapter_title(text);
         }
         ActiveBlockKind::Heading(_) | ActiveBlockKind::Paragraph | ActiveBlockKind::ListItem => {
+            let text = block.text.trim();
+            if text.is_empty() {
+                return;
+            }
             builder.push_paragraph(text);
         }
+    }
+}
+
+fn code_block_language(kind: CodeBlockKind<'_>) -> Option<String> {
+    match kind {
+        CodeBlockKind::Indented => None,
+        CodeBlockKind::Fenced(info) => info
+            .split_whitespace()
+            .next()
+            .map(str::trim)
+            .filter(|lang| !lang.is_empty())
+            .map(str::to_string),
     }
 }
 
@@ -242,5 +278,38 @@ Hello there.
         .unwrap();
         assert_eq!(book.title, "Custom Title");
         assert_eq!(book.chapters[0].title.as_deref(), Some("Chapter 1"));
+    }
+
+    #[test]
+    fn preserves_fenced_code_blocks() {
+        let raw = r#"## Chapter 1
+
+Intro paragraph.
+
+```rust
+fn main() {
+    println!("hi");
+}
+```
+"#;
+
+        let book = parse_markdown_str(
+            raw,
+            Path::new("book.md"),
+            "book",
+            None,
+            &ParseOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(book.chapters.len(), 1);
+        assert_eq!(book.chapters[0].paragraphs.len(), 2);
+        assert!(book.chapters[0].paragraphs[0].is_translatable());
+        assert_eq!(
+            book.chapters[0].paragraphs[1].kind,
+            crate::types::ParagraphKind::CodeBlock {
+                language: Some("rust".to_string())
+            }
+        );
     }
 }

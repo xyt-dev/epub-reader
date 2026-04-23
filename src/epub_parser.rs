@@ -7,7 +7,13 @@ use crate::parse_utils::{
     default_title_from_path, is_substantive_text, looks_like_chapter_heading, looks_like_sentence,
     normalize_text, ParseOptions,
 };
-use crate::types::{Book, Chapter, Paragraph};
+use crate::types::{Book, Chapter, Paragraph, ParagraphKind};
+
+#[derive(Debug, Clone)]
+struct ExtractedBlock {
+    text: String,
+    kind: ParagraphKind,
+}
 
 pub fn parse_epub(epub_path: &std::path::Path, options: &ParseOptions) -> Result<Book> {
     let mut doc = EpubDoc::new(epub_path)
@@ -72,38 +78,58 @@ fn extract_paragraphs(
     options: &ParseOptions,
 ) -> Vec<Paragraph> {
     let document = Html::parse_document(html);
-    let texts = extract_text_blocks(&document, options);
+    let blocks = extract_content_blocks(&document, options);
+    let mut text_para_idx = 0usize;
+    let mut code_block_idx = 0usize;
 
-    texts
+    blocks
         .into_iter()
-        .enumerate()
-        .map(|(para_idx, text)| Paragraph {
-            id: format!("{}-ch{:03}-p{:04}", book_slug, chapter_idx, para_idx),
-            text,
+        .map(|block| match block.kind {
+            ParagraphKind::Text => {
+                let para = Paragraph {
+                    id: format!("{}-ch{:03}-p{:04}", book_slug, chapter_idx, text_para_idx),
+                    text: block.text,
+                    kind: ParagraphKind::Text,
+                };
+                text_para_idx += 1;
+                para
+            }
+            ParagraphKind::CodeBlock { language } => {
+                let para = Paragraph {
+                    id: format!(
+                        "{}-ch{:03}-code{:04}",
+                        book_slug, chapter_idx, code_block_idx
+                    ),
+                    text: block.text,
+                    kind: ParagraphKind::CodeBlock { language },
+                };
+                code_block_idx += 1;
+                para
+            }
         })
         .collect()
 }
 
-fn extract_text_blocks(document: &Html, options: &ParseOptions) -> Vec<String> {
-    let primary_sel = Selector::parse("p, blockquote, li").unwrap();
-    let mut texts: Vec<String> = document
+fn extract_content_blocks(document: &Html, options: &ParseOptions) -> Vec<ExtractedBlock> {
+    let primary_sel = Selector::parse("p, blockquote, li, pre").unwrap();
+    let mut blocks: Vec<ExtractedBlock> = document
         .select(&primary_sel)
-        .filter_map(|element| extract_primary_block_text(element, options))
+        .filter_map(|element| extract_primary_block(element, options))
         .collect();
 
-    if texts.is_empty() {
+    if blocks.is_empty() {
         let div_sel = Selector::parse("div").unwrap();
-        texts = document
+        blocks = document
             .select(&div_sel)
             .filter_map(|element| extract_div_fallback_text(element, options))
             .collect();
     }
 
-    if looks_like_navigation_page(&texts, options) {
+    if looks_like_navigation_page(&blocks, options) {
         return Vec::new();
     }
 
-    texts
+    blocks
 }
 
 fn extract_chapter_title(html: &str) -> Option<String> {
@@ -120,12 +146,19 @@ fn extract_chapter_title(html: &str) -> Option<String> {
     None
 }
 
-fn extract_primary_block_text(element: ElementRef<'_>, options: &ParseOptions) -> Option<String> {
+fn extract_primary_block(
+    element: ElementRef<'_>,
+    options: &ParseOptions,
+) -> Option<ExtractedBlock> {
     if has_skipped_ancestor(element) {
         return None;
     }
 
     let tag = element.value().name();
+    if tag == "pre" {
+        return extract_code_block(element);
+    }
+
     if matches!(tag, "li" | "blockquote") && has_descendant_tag(element, &["p", "li", "blockquote"])
     {
         return None;
@@ -135,11 +168,17 @@ fn extract_primary_block_text(element: ElementRef<'_>, options: &ParseOptions) -
     if !is_substantive_text(&text, options) || looks_like_navigation_entry(&text, options) {
         None
     } else {
-        Some(text)
+        Some(ExtractedBlock {
+            text,
+            kind: ParagraphKind::Text,
+        })
     }
 }
 
-fn extract_div_fallback_text(element: ElementRef<'_>, options: &ParseOptions) -> Option<String> {
+fn extract_div_fallback_text(
+    element: ElementRef<'_>,
+    options: &ParseOptions,
+) -> Option<ExtractedBlock> {
     if has_skipped_ancestor(element)
         || has_descendant_tag(
             element,
@@ -147,6 +186,7 @@ fn extract_div_fallback_text(element: ElementRef<'_>, options: &ParseOptions) ->
                 "p",
                 "li",
                 "blockquote",
+                "pre",
                 "div",
                 "section",
                 "article",
@@ -164,7 +204,23 @@ fn extract_div_fallback_text(element: ElementRef<'_>, options: &ParseOptions) ->
         return None;
     }
 
-    Some(text)
+    Some(ExtractedBlock {
+        text,
+        kind: ParagraphKind::Text,
+    })
+}
+
+fn extract_code_block(element: ElementRef<'_>) -> Option<ExtractedBlock> {
+    let text = element.text().collect::<Vec<_>>().join("");
+    let text = text.trim_matches('\n').to_string();
+    if text.trim().is_empty() {
+        return None;
+    }
+
+    Some(ExtractedBlock {
+        text,
+        kind: ParagraphKind::CodeBlock { language: None },
+    })
 }
 
 fn has_skipped_ancestor(element: ElementRef<'_>) -> bool {
@@ -183,7 +239,13 @@ fn has_descendant_tag(element: ElementRef<'_>, tags: &[&str]) -> bool {
     })
 }
 
-fn looks_like_navigation_page(texts: &[String], options: &ParseOptions) -> bool {
+fn looks_like_navigation_page(blocks: &[ExtractedBlock], options: &ParseOptions) -> bool {
+    let texts = blocks
+        .iter()
+        .filter(|block| matches!(block.kind, ParagraphKind::Text))
+        .map(|block| &block.text)
+        .collect::<Vec<_>>();
+
     texts.len() >= 4
         && texts.iter().all(|text| {
             looks_like_navigation_entry(text, options)
@@ -198,8 +260,9 @@ fn looks_like_navigation_entry(text: &str, options: &ParseOptions) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_chapter_title, extract_text_blocks};
+    use super::{extract_chapter_title, extract_content_blocks};
     use crate::parse_utils::ParseOptions;
+    use crate::types::ParagraphKind;
     use scraper::Html;
 
     #[test]
@@ -213,9 +276,9 @@ mod tests {
             </body></html>"#,
         );
 
-        let blocks = extract_text_blocks(&html, &ParseOptions::default());
+        let blocks = extract_content_blocks(&html, &ParseOptions::default());
         assert_eq!(blocks.len(), 3);
-        assert_eq!(blocks[0], "\"Short dialogue.\"");
+        assert_eq!(blocks[0].text, "\"Short dialogue.\"");
     }
 
     #[test]
@@ -229,7 +292,7 @@ mod tests {
             </ul></body></html>"#,
         );
 
-        let blocks = extract_text_blocks(&html, &ParseOptions::default());
+        let blocks = extract_content_blocks(&html, &ParseOptions::default());
         assert!(blocks.is_empty());
     }
 
@@ -237,5 +300,21 @@ mod tests {
     fn extracts_heading_title() {
         let title = extract_chapter_title("<html><body><h2>Prologue</h2></body></html>");
         assert_eq!(title.as_deref(), Some("Prologue"));
+    }
+
+    #[test]
+    fn preserves_preformatted_code_blocks() {
+        let html = Html::parse_document(
+            r#"<html><body>
+            <p>Intro text.</p>
+            <pre>fn main() {
+    println!("hi");
+}</pre>
+            </body></html>"#,
+        );
+
+        let blocks = extract_content_blocks(&html, &ParseOptions::default());
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[1].kind, ParagraphKind::CodeBlock { language: None });
     }
 }

@@ -4,7 +4,7 @@ use slug::slugify;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use crate::types::{Book, Chapter, Paragraph};
+use crate::types::{Book, Chapter, Paragraph, ParagraphKind};
 
 #[derive(Debug, Clone)]
 pub struct ParseOptions {
@@ -41,9 +41,15 @@ impl ParseOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct ParagraphSeed {
+    pub text: String,
+    pub kind: ParagraphKind,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct ChapterSeed {
     pub title: Option<String>,
-    pub paragraphs: Vec<String>,
+    pub paragraphs: Vec<ParagraphSeed>,
 }
 
 #[derive(Debug, Clone)]
@@ -97,8 +103,23 @@ impl BookBuilder {
     pub fn push_paragraph(&mut self, text: impl AsRef<str>) {
         let text = normalize_text(text.as_ref());
         if is_substantive_text(&text, &self.options) {
-            self.current.paragraphs.push(text);
+            self.current.paragraphs.push(ParagraphSeed {
+                text,
+                kind: ParagraphKind::Text,
+            });
         }
+    }
+
+    pub fn push_code_block(&mut self, text: impl AsRef<str>, language: Option<String>) {
+        let text = text.as_ref().trim_matches('\n').to_string();
+        if text.trim().is_empty() {
+            return;
+        }
+
+        self.current.paragraphs.push(ParagraphSeed {
+            text,
+            kind: ParagraphKind::CodeBlock { language },
+        });
     }
 
     pub fn finish(mut self, path: &Path) -> Result<Book> {
@@ -118,11 +139,26 @@ impl BookBuilder {
 
         for chapter in self.chapters {
             let mut paragraphs = Vec::new();
-            for (para_idx, text) in chapter.paragraphs.into_iter().enumerate() {
-                paragraphs.push(Paragraph {
-                    id: format!("{}-ch{:03}-p{:04}", slug, chapters.len(), para_idx),
-                    text,
-                });
+            let mut text_para_idx = 0usize;
+            let mut code_block_idx = 0usize;
+
+            for seed in chapter.paragraphs {
+                let ParagraphSeed { text, kind } = seed;
+                let (id, kind) = match kind {
+                    ParagraphKind::Text => {
+                        let id = format!("{}-ch{:03}-p{:04}", slug, chapters.len(), text_para_idx);
+                        text_para_idx += 1;
+                        (id, ParagraphKind::Text)
+                    }
+                    ParagraphKind::CodeBlock { language } => {
+                        let id =
+                            format!("{}-ch{:03}-code{:04}", slug, chapters.len(), code_block_idx);
+                        code_block_idx += 1;
+                        (id, ParagraphKind::CodeBlock { language })
+                    }
+                };
+
+                paragraphs.push(Paragraph { id, text, kind });
             }
 
             if paragraphs.is_empty() {

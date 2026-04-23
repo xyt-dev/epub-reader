@@ -11,6 +11,8 @@
 - Supports `epub`, `md/markdown`, and `txt` input
 - Works on a single file or recursively scans a directory
 - Produces reader-friendly HTML with 3 collapsible AI sections per paragraph
+- Preserves fenced Markdown code blocks and EPUB/HTML `<pre>` blocks in the output
+- Code blocks are not sent for translation and are rendered with offline Catppuccin Mocha syntax highlighting
 - Calls Claude and expects structured JSON: translation / vocabulary / chunks
 - Sends contiguous paragraphs in batches and carries explicit paragraph IDs in both request and response payloads
 - Supports `Ctrl+C` interrupt and resume without redoing completed paragraphs
@@ -18,6 +20,8 @@
 - Supports `--jobs` for concurrent requests and `--request-delay-ms` for throttling
 - Default batching strategy: target about `5000` effective chars, hard cap `7000`, max `10` paragraphs per request, with automatic single-paragraph fallback on batch failure
 - TXT / Markdown segmentation behavior can be tuned from the CLI
+- Generated HTML includes a chapter navigator, current-location badge, and paragraph-anchored resume
+- Open/closed AI sections are persisted, and reading progress is computed by paragraph position rather than raw scroll height
 - Both HTML and state files use atomic writes for safer crash recovery
 
 ## Installation
@@ -135,6 +139,7 @@ Options:
 
 - Reads content in spine order
 - Prefers extracting `p`, `blockquote`, and `li` blocks
+- Preserves `pre` code blocks and renders them as read-only highlighted code in HTML
 - Falls back to `div` extraction when the document structure is unusual
 - Filters some TOC, page-number, and navigation-like pages
 
@@ -144,6 +149,7 @@ Options:
 - If there is no frontmatter title, the first suitable `# H1` can become the book title
 - `H1-H3` headings are treated as chapter candidates
 - Normal paragraphs and list items become translatable text blocks
+- Fenced code blocks are preserved in the output HTML and skipped by the translation pipeline
 
 ### TXT
 
@@ -199,6 +205,15 @@ output/
 
 > Do not delete `*_state.json` unless you intentionally want to restart from scratch.
 
+The generated HTML also includes reading helpers:
+
+- A chapter drawer in the top-right corner for fast navigation in long books
+- A floating location badge showing the current chapter and paragraph index
+- Reading position stored as `para_id + in-paragraph offset`, instead of only a coarse scroll percentage
+- Persistent open/closed state for translation / vocabulary / chunk sections
+- A progress bar based on current paragraph index, so expanding details does not distort the percentage
+- Code blocks rendered with an embedded Catppuccin Mocha syntax-highlighting theme
+
 ## Batching Strategy
 
 The translation stage does not send one paragraph per request by default. It sends small batches of contiguous paragraphs:
@@ -233,6 +248,8 @@ cargo run --release -- ./books ./output
 cargo run --release -- --rebuild ./books ./output
 ```
 
+This is also the easiest way to refresh previously processed books after the HTML reader UI changes.
+
 ### Start over completely
 
 Delete the matching:
@@ -259,10 +276,11 @@ input file
 Current pipeline:
 
 1. Parse the input file into a unified `Book` structure
-2. Generate an HTML skeleton with placeholders for translation / vocabulary / chunks
+2. Generate translatable paragraph skeletons and preserve code blocks as read-only highlighted modules
 3. Group contiguous paragraphs into `items[{id, text}]` batches and send them to Claude with bounded concurrency
 4. Validate `items[{id, translation, vocabulary, chunks}]` by `para_id`, then patch HTML
 5. Atomically write HTML first, then write `*_state.json`
+6. In the browser, persist reading position and open detail sections by paragraph anchor
 
 This gives you:
 
@@ -271,6 +289,8 @@ This gives you:
 - Safe crash behavior, where the worst case is usually redoing one paragraph
 - Automatic fallback to single-paragraph retries when a batch fails
 - Full `--rebuild` support without any API call
+- Better long-form navigation with chapter jumping and paragraph-level resume
+- Code samples and terminal snippets remain visible without being mistakenly translated
 
 ## Project Structure
 

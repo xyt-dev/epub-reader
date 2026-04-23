@@ -236,7 +236,11 @@ fn rebuild_html(
 ) -> Result<JobOutcome> {
     ui::print_step("parse", "reading source content");
     let book = parser::parse_book(input_path, parse_options)?;
-    let total_paragraphs: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
+    let total_paragraphs: usize = book
+        .chapters
+        .iter()
+        .map(|c| c.paragraphs.iter().filter(|p| p.is_translatable()).count())
+        .sum();
     ui::print_book_summary(&book.title, book.chapters.len(), total_paragraphs);
 
     let state_path = state::state_path(output_dir, &book.slug);
@@ -285,7 +289,11 @@ async fn process_input(
 ) -> Result<JobOutcome> {
     ui::print_step("parse", "reading source content");
     let book = parser::parse_book(input_path, parse_options)?;
-    let total_paragraphs: usize = book.chapters.iter().map(|c| c.paragraphs.len()).sum();
+    let total_paragraphs: usize = book
+        .chapters
+        .iter()
+        .map(|c| c.paragraphs.iter().filter(|p| p.is_translatable()).count())
+        .sum();
     ui::print_book_summary(&book.title, book.chapters.len(), total_paragraphs);
 
     let html_path = output_dir.join(format!("{}.html", book.slug));
@@ -311,7 +319,7 @@ async fn process_input(
         .chapters
         .iter()
         .flat_map(|c| c.paragraphs.iter())
-        .filter(|p| !st.is_done(&p.id) && !p.text.trim().is_empty())
+        .filter(|p| p.is_translatable() && !st.is_done(&p.id) && !p.text.trim().is_empty())
         .map(|p| PendingParagraph {
             para_id: p.id.clone(),
             para_text: p.text.clone(),
@@ -423,6 +431,7 @@ fn build_para_map<'a>(book: &'a types::Book) -> HashMap<&'a str, &'a types::Para
     book.chapters
         .iter()
         .flat_map(|c| c.paragraphs.iter())
+        .filter(|p| p.is_translatable())
         .map(|p| (p.id.as_str(), p))
         .collect()
 }

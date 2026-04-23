@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum ParagraphKind {
+    #[default]
+    Text,
+    CodeBlock {
+        language: Option<String>,
+    },
+}
+
 /// A single paragraph extracted from a source chapter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Paragraph {
@@ -7,6 +16,14 @@ pub struct Paragraph {
     pub id: String,
     /// The raw English text of this paragraph.
     pub text: String,
+    #[serde(default)]
+    pub kind: ParagraphKind,
+}
+
+impl Paragraph {
+    pub fn is_translatable(&self) -> bool {
+        matches!(self.kind, ParagraphKind::Text)
+    }
 }
 
 /// A chapter extracted from the source document.
