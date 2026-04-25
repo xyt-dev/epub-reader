@@ -430,35 +430,6 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       font: 600 .76rem/1.35 'Segoe UI', system-ui, sans-serif;
       min-height: 1.2rem;
     }
-    #reading-loc {
-      display: inline-flex;
-      align-items: center;
-      gap: .4rem;
-      border: 1px solid var(--accent-border);
-      background:
-        linear-gradient(135deg, rgba(39, 27, 55, .82) 0%, rgba(20, 19, 33, .8) 100%);
-      color: var(--text);
-      font: 600 .76rem/1.25 'Segoe UI', system-ui, sans-serif;
-      padding: .5rem .75rem;
-      border-radius: 999px;
-      max-width: min(32rem, calc(100vw - 2rem));
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      backdrop-filter: blur(10px);
-      box-shadow:
-        0 8px 24px rgba(0,0,0,.24),
-        inset 0 0 0 1px rgba(255, 228, 163, .04),
-        0 0 24px rgba(138, 82, 219, .1);
-    }
-    #reading-loc.is-floating {
-      position: fixed;
-      color: var(--focus-rare);
-      border-color: var(--focus-rare);
-      left: max(1rem, calc(50% - 500px));
-      bottom: 1.75rem;
-      z-index: 105;
-    }
     .toc-nav {
       display: flex;
       flex-direction: column;
@@ -527,6 +498,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       z-index: 100;
       pointer-events: none;
       user-select: none;
+      white-space: nowrap;
     }
     #progress-bar {
       height: 100%;
@@ -731,12 +703,6 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     /* ── Responsive ────────────────────────────────────────────── */
     @media (max-width: 760px) {
       #toc-panel { width: min(26rem, 96vw); }
-      #reading-loc.is-floating {
-        left: .8rem;
-        right: .8rem;
-        bottom: 3rem;
-        max-width: none;
-      }
       #progress-pct { right: 1rem; bottom: 1.9rem; }
     }
     @media (max-width: 600px) {
@@ -760,7 +726,6 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 
   <div id="progress-bar-wrap"><div id="progress-bar"></div></div>
   <div id="progress-pct">0.00%</div>
-  <div id="reading-loc" class="is-floating">Locating…</div>
 
   <h1 style="color:var(--accent);margin-bottom:2.5rem;font-size:2rem;">{{TITLE}}</h1>
 
@@ -770,7 +735,6 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     // Reading state and navigation
     const bar = document.getElementById('progress-bar');
     const pctEl = document.getElementById('progress-pct');
-    const readingLocEl = document.getElementById('reading-loc');
     const tocLocInlineEl = document.getElementById('toc-loc-inline');
     const tocToggle = document.getElementById('toc-toggle');
     const tocPanel = document.getElementById('toc-panel');
@@ -919,11 +883,11 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       const chapterId = chapter?.id || '';
       const chapterTitle = chapter?.querySelector('.chapter-title')?.textContent?.trim() || 'Current position';
       const locText = `${chapterTitle} · ${index}/${total}`;
+      const progressText = `${index}/${total} (${pct.toFixed(2)}%)`;
 
       bar.style.width = pct + '%';
       updateProgressBarVisual(pct);
-      pctEl.textContent = pct.toFixed(2) + '%';
-      readingLocEl.textContent = locText;
+      pctEl.textContent = progressText;
       tocLocInlineEl.textContent = locText;
       updateCurrentHighlight(current);
       updateChapterHighlight(chapterId);
