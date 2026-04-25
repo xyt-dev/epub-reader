@@ -336,8 +336,95 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       --rare-soft: rgba(138, 82, 219, .18);
       --rare-deep: rgba(72, 34, 104, .74);
       --orange:    #ff9e64;
+      --chapter-title-color: #c89cff;
+      --theme-toggle-border: rgba(217, 192, 255, .28);
+      --theme-toggle-bg: rgba(28, 33, 50, .88);
+      --theme-toggle-fg: var(--focus-rare);
+      --theme-toggle-focus-border: rgba(217, 192, 255, .45);
+      --theme-toggle-focus-ring: rgba(217, 192, 255, .16);
+      --toc-toggle-border: rgba(217, 192, 255, .28);
+      --toc-toggle-bg: rgba(28, 33, 50, .88);
+      --toc-toggle-fg: var(--focus-rare);
+      --toc-toggle-focus-border: rgba(217, 192, 255, .45);
+      --toc-toggle-focus-ring: rgba(217, 192, 255, .16);
+      --sidebar-panel-bg: linear-gradient(180deg, rgba(46, 32, 67, .98) 0%, rgba(26, 27, 38, .98) 100%);
+      --sidebar-panel-border: rgba(217, 192, 255, .12);
+      --sidebar-head-border: rgba(217, 192, 255, .12);
+      --sidebar-book-title-color: var(--chapter-title-color);
+      --sidebar-link-hover-bg: rgba(168, 117, 255, .08);
+      --sidebar-link-hover-border: rgba(217, 192, 255, .14);
+      --sidebar-link-current-bg: rgba(168, 117, 255, .12);
+      --sidebar-link-current-border: rgba(217, 192, 255, .26);
+      --sidebar-link-current-shadow: rgba(168, 117, 255, .08);
+      --sidebar-link-focus-border: rgba(217, 192, 255, .3);
+      --sidebar-link-focus-ring: rgba(217, 192, 255, .14);
+      --translation-summary-bg: #201d30;
+      --translation-summary-fg: var(--cyan);
+      --vocab-summary-bg: #1d2940;
+      --vocab-summary-fg: var(--gear-gold);
+      --chunk-summary-bg: #1e2a20;
+      --chunk-summary-fg: var(--green);
+      --progress-start: var(--focus-rare);
+      --progress-mid: var(--gear-gold);
+      --progress-end: #fff1b8;
+      --progress-glow-a: rgba(217, 192, 255, .24);
+      --progress-glow-b: rgba(255, 232, 170, .24);
+      --progress-sheen: rgba(255,255,255,.22);
+      --progress-dot: #fff1b8;
+      --progress-dot-glow-a: #fff1b8;
+      --progress-dot-glow-b: rgba(255, 223, 122, .78);
+      --progress-dot-glow-c: rgba(255, 196, 72, .42);
       --radius:    8px;
       font-size:   17px;
+    }
+    body[data-theme="legacy"] {
+      --accent: #7aa2f7;
+      --accent-bright: #7dcfff;
+      --accent-soft: rgba(122, 162, 247, .16);
+      --accent-border: rgba(122, 162, 247, .28);
+      --focus-rare: #7dcfff;
+      --focus-gear: rgba(122, 162, 247, .16);
+      --gear-gold: #7aa2f7;
+      --rare-item-bg: #201e30;
+      --cyan: #7dcfff;
+      --purple: #bb9af7;
+      --chapter-title-color: #bb9af7;
+      --translation-summary-bg: #1e2940;
+      --translation-summary-fg: #7dcfff;
+      --vocab-summary-bg: #201d30;
+      --vocab-summary-fg: #bb9af7;
+      --chunk-summary-bg: #1e2a20;
+      --chunk-summary-fg: #9ece6a;
+      --theme-toggle-border: rgba(125, 207, 255, .28);
+      --theme-toggle-bg: rgba(28, 33, 50, .88);
+      --theme-toggle-fg: #7dcfff;
+      --theme-toggle-focus-border: rgba(125, 207, 255, .45);
+      --theme-toggle-focus-ring: rgba(125, 207, 255, .16);
+      --toc-toggle-border: rgba(125, 207, 255, .28);
+      --toc-toggle-bg: rgba(28, 33, 50, .88);
+      --toc-toggle-fg: #7dcfff;
+      --toc-toggle-focus-border: rgba(125, 207, 255, .45);
+      --toc-toggle-focus-ring: rgba(125, 207, 255, .16);
+      --sidebar-panel-bg: linear-gradient(180deg, rgba(34, 40, 61, .98) 0%, rgba(23, 28, 44, .98) 100%);
+      --sidebar-panel-border: rgba(125, 207, 255, .12);
+      --sidebar-head-border: rgba(125, 207, 255, .12);
+      --sidebar-book-title-color: #7aa2f7;
+      --sidebar-link-hover-bg: rgba(122, 162, 247, .08);
+      --sidebar-link-hover-border: rgba(122, 162, 247, .14);
+      --sidebar-link-current-bg: rgba(122, 162, 247, .12);
+      --sidebar-link-current-border: rgba(122, 162, 247, .26);
+      --sidebar-link-current-shadow: rgba(122, 162, 247, .08);
+      --sidebar-link-focus-border: rgba(122, 162, 247, .3);
+      --sidebar-link-focus-ring: rgba(122, 162, 247, .14);
+      --progress-start: #7dcfff;
+      --progress-mid: #f1e6cb;
+      --progress-end: #fff1b8;
+      --progress-glow-a: rgba(125, 207, 255, .24);
+      --progress-glow-b: rgba(255, 232, 170, .24);
+      --progress-dot: #fff1b8;
+      --progress-dot-glow-a: #fff1b8;
+      --progress-dot-glow-b: rgba(255, 223, 122, .78);
+      --progress-dot-glow-c: rgba(255, 196, 72, .42);
     }
     body {
       background: var(--bg);
@@ -352,14 +439,12 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     a { color: var(--accent); }
 
     /* ── Floating UI ────────────────────────────────────────────── */
+    #theme-toggle,
     #toc-toggle {
       position: fixed;
       top: 1rem;
-      right: 1rem;
       z-index: 140;
-      border: 1px solid rgba(125, 207, 255, .28);
-      background: rgba(28, 33, 50, .88);
-      color: #7dcfff;
+      border: 1px solid transparent;
       font: 600 .82rem/1 'Segoe UI', system-ui, sans-serif;
       letter-spacing: .04em;
       border-radius: 999px;
@@ -368,11 +453,30 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       backdrop-filter: blur(12px);
       box-shadow: 0 12px 30px rgba(0,0,0,.26);
     }
+    #theme-toggle {
+      left: 1rem;
+      border-color: var(--theme-toggle-border);
+      background: var(--theme-toggle-bg);
+      color: var(--theme-toggle-fg);
+    }
+    #toc-toggle {
+      right: 1rem;
+      border-color: var(--toc-toggle-border);
+      background: var(--toc-toggle-bg);
+      color: var(--toc-toggle-fg);
+    }
+    #theme-toggle:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 1px var(--theme-toggle-focus-border),
+        0 0 0 4px var(--theme-toggle-focus-ring),
+        0 12px 30px rgba(0,0,0,.26);
+    }
     #toc-toggle:focus-visible {
       outline: none;
       box-shadow:
-        0 0 0 1px rgba(122, 162, 247, .45),
-        0 0 0 4px rgba(122, 162, 247, .16),
+        0 0 0 1px var(--toc-toggle-focus-border),
+        0 0 0 4px var(--toc-toggle-focus-ring),
         0 12px 30px rgba(0,0,0,.26);
     }
     #toc-backdrop {
@@ -396,9 +500,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       width: min(24rem, 92vw);
       height: 100vh;
       padding: 1.25rem 1rem 1.4rem;
-      background:
-        linear-gradient(180deg, rgba(34, 40, 61, .98) 0%, rgba(23, 28, 44, .98) 100%);
-      border-left: 1px solid rgba(125, 207, 255, .12);
+      background: var(--sidebar-panel-bg);
+      border-left: 1px solid var(--sidebar-panel-border);
       box-shadow: -24px 0 48px rgba(0,0,0,.34);
       overflow-y: auto;
       transform: translateX(104%);
@@ -409,7 +512,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .toc-head {
       margin-bottom: 1rem;
       padding-bottom: .9rem;
-      border-bottom: 1px solid rgba(125, 207, 255, .12);
+      border-bottom: 1px solid var(--sidebar-head-border);
     }
     .toc-kicker {
       font: 700 .68rem/1 'Segoe UI', system-ui, sans-serif;
@@ -419,7 +522,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       margin-bottom: .45rem;
     }
     .toc-book-title {
-      color: #7aa2f7;
+      color: var(--sidebar-book-title-color);
       font-size: 1.02rem;
       line-height: 1.45;
       margin-bottom: .55rem;
@@ -451,20 +554,20 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     .toc-link:hover {
       transform: translateX(-2px);
-      background: rgba(122, 162, 247, .08);
-      border-color: rgba(122, 162, 247, .14);
+      background: var(--sidebar-link-hover-bg);
+      border-color: var(--sidebar-link-hover-border);
     }
     .toc-link.is-current {
-      background: rgba(122, 162, 247, .12);
-      border-color: rgba(122, 162, 247, .26);
-      box-shadow: inset 0 0 0 1px rgba(122, 162, 247, .08);
+      background: var(--sidebar-link-current-bg);
+      border-color: var(--sidebar-link-current-border);
+      box-shadow: inset 0 0 0 1px var(--sidebar-link-current-shadow);
     }
     .toc-link:focus-visible {
       outline: none;
-      border-color: rgba(122, 162, 247, .3);
+      border-color: var(--sidebar-link-focus-border);
       box-shadow:
-        inset 0 0 0 1px rgba(122, 162, 247, .08),
-        0 0 0 3px rgba(122, 162, 247, .14);
+        inset 0 0 0 1px var(--sidebar-link-current-shadow),
+        0 0 0 3px var(--sidebar-link-focus-ring);
     }
     .toc-link-index {
       color: var(--text-dim);
@@ -505,10 +608,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       width: 0%;
       border-radius: 9999px;
       transition: width .25s ease;
-      background: linear-gradient(90deg, var(--focus-rare) 0%, var(--gear-gold) 50%, #fff1b8 90%, #fff1b8 100%);
+      background: linear-gradient(90deg, var(--progress-start) 0%, var(--progress-mid) 50%, var(--progress-end) 90%, var(--progress-end) 100%);
       box-shadow:
-        0 0 12px rgba(217, 192, 255, .24),
-        0 0 32px rgba(255, 232, 170, .24);
+        0 0 12px var(--progress-glow-a),
+        0 0 32px var(--progress-glow-b);
       position: relative;
       overflow: hidden;
     }
@@ -516,7 +619,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       content: '';
       position: absolute;
       inset: 0;
-      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 74%);
+      background: linear-gradient(180deg, var(--progress-sheen) 0%, rgba(255,255,255,0) 74%);
       pointer-events: none;
     }
     #progress-bar::after {
@@ -526,8 +629,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       transform: translateY(-50%);
       width: 5px; height: 5px;
       border-radius: 50%;
-      background: #fff1b8;
-      box-shadow: 0 0 10px 3px #fff1b8, 0 0 24px 7px rgba(255, 223, 122, .78), 0 0 40px 10px rgba(255, 196, 72, .42);
+      background: var(--progress-dot);
+      box-shadow: 0 0 10px 3px var(--progress-dot-glow-a), 0 0 24px 7px var(--progress-dot-glow-b), 0 0 40px 10px var(--progress-dot-glow-c);
       opacity: 1;
       transition: opacity .25s;
     }
@@ -539,7 +642,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       scroll-margin-top: 1rem;
     }
     .chapter-title {
-      font-size: 1.6rem; color: #c89cff;
+      font-size: 1.6rem; color: var(--chapter-title-color);
       border-bottom: 2px solid var(--border);
       padding-bottom: .4rem; margin-bottom: 2rem;
     }
@@ -605,9 +708,9 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
         0 0 0 3px rgba(138, 82, 219, .16);
     }
 
-    .translation-section > summary { background: #201d30; color: var(--cyan); }
-    .vocab-section      > summary { background: #1d2940; color: var(--gear-gold); }
-    .chunk-section      > summary { background: #1e2a20; color: var(--green); }
+    .translation-section > summary { background: var(--translation-summary-bg); color: var(--translation-summary-fg); }
+    .vocab-section      > summary { background: var(--vocab-summary-bg); color: var(--vocab-summary-fg); }
+    .chunk-section      > summary { background: var(--chunk-summary-bg); color: var(--chunk-summary-fg); }
 
     .ai-content {
       padding: .7rem 1rem;
@@ -707,12 +810,14 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     @media (max-width: 600px) {
       body { font-size: 15px; padding: 1rem .8rem 5.6rem; }
+      #theme-toggle { top: .8rem; left: .8rem; }
       #toc-toggle { top: .8rem; right: .8rem; }
       .vocab-table { font-size: .75rem; }
     }
   </style>
 </head>
 <body>
+  <button id="theme-toggle" type="button" aria-pressed="false">Relic</button>
   <button id="toc-toggle" type="button" aria-expanded="false" aria-controls="toc-panel">Chapters</button>
   <div id="toc-backdrop" aria-hidden="true"></div>
   <aside id="toc-panel" aria-hidden="true">
@@ -735,6 +840,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     // Reading state and navigation
     const bar = document.getElementById('progress-bar');
     const pctEl = document.getElementById('progress-pct');
+    const themeToggle = document.getElementById('theme-toggle');
     const tocLocInlineEl = document.getElementById('toc-loc-inline');
     const tocToggle = document.getElementById('toc-toggle');
     const tocPanel = document.getElementById('toc-panel');
@@ -742,12 +848,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     const tocLinks = Array.from(document.querySelectorAll('.toc-link'));
     const paraBlocks = Array.from(document.querySelectorAll('.para-block'));
     const detailSections = Array.from(document.querySelectorAll('.ai-section[data-detail-key]'));
+    const THEME_KEY = 'reader-theme';
     const POSITION_KEY = 'reading-position:{{SLUG}}';
     const DETAILS_KEY = 'open-details:{{SLUG}}';
     const VIEWPORT_ANCHOR_RATIO = 0.5;
-    const PROGRESS_START_COLOR = '#d9c0ff';
-    const PROGRESS_MID_COLOR = '#f1e6cb';
-    const PROGRESS_END_COLOR = '#fff1b8';
     const PROGRESS_MID_POINT = 0.35;
     let currentParaId = null;
     let rafPending = false;
@@ -769,6 +873,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
 
     function clamp01(value) {
       return Math.max(0, Math.min(1, value));
+    }
+
+    function cssVar(name) {
+      return getComputedStyle(document.body).getPropertyValue(name).trim();
     }
 
     function hexToRgb(hex) {
@@ -795,12 +903,15 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
 
     function progressEndColor(progress01) {
+      const startColor = cssVar('--progress-start');
+      const midColor = cssVar('--progress-mid');
+      const endColor = cssVar('--progress-end');
       if (progress01 <= PROGRESS_MID_POINT) {
-        return mixHexColor(PROGRESS_START_COLOR, PROGRESS_MID_COLOR, progress01 / PROGRESS_MID_POINT);
+        return mixHexColor(startColor, midColor, progress01 / PROGRESS_MID_POINT);
       }
       return mixHexColor(
-        PROGRESS_MID_COLOR,
-        PROGRESS_END_COLOR,
+        midColor,
+        endColor,
         (progress01 - PROGRESS_MID_POINT) / (1 - PROGRESS_MID_POINT)
       );
     }
@@ -808,7 +919,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     function updateProgressBarVisual(pct) {
       const progress01 = clamp01(pct / 100);
       const endColor = progressEndColor(progress01);
-      bar.style.background = `linear-gradient(90deg, ${PROGRESS_START_COLOR} 0%, ${endColor} 100%)`;
+      bar.style.background = `linear-gradient(90deg, ${cssVar('--progress-start')} 0%, ${endColor} 100%)`;
     }
 
     function getScrollTop() {
@@ -819,6 +930,23 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       document.body.classList.toggle('toc-open', open);
       tocToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       tocPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+    }
+
+    function themeLabel(theme) {
+      return theme === 'legacy' ? 'Classic' : 'Relic';
+    }
+
+    function applyTheme(theme, persist = true) {
+      const normalized = theme === 'legacy' ? 'legacy' : 'current';
+      document.body.dataset.theme = normalized;
+      themeToggle.textContent = themeLabel(normalized);
+      themeToggle.setAttribute('aria-pressed', normalized === 'legacy' ? 'true' : 'false');
+      if (persist) {
+        try {
+          localStorage.setItem(THEME_KEY, normalized);
+        } catch (_) {}
+      }
+      scheduleReadingState();
     }
 
     function getCurrentParagraph() {
@@ -960,6 +1088,18 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       });
     });
 
+    const savedTheme = (() => {
+      try {
+        return localStorage.getItem(THEME_KEY);
+      } catch (_) {
+        return null;
+      }
+    })();
+    applyTheme(savedTheme, false);
+
+    themeToggle.addEventListener('click', () => {
+      applyTheme(document.body.dataset.theme === 'legacy' ? 'current' : 'legacy');
+    });
     tocToggle.addEventListener('click', () => {
       setTocOpen(!document.body.classList.contains('toc-open'));
     });
