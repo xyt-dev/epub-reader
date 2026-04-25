@@ -219,7 +219,7 @@ fn render_vocab(entries: &[crate::types::VocabEntry]) -> String {
     );
     for e in entries {
         s.push_str(&format!(
-            "<tr><td class=\"word\">{}</td><td class=\"ipa\">{}</td><td class=\"pos\">{}</td><td>{}</td><td class=\"example\"><em>{}</em></td></tr>",
+            "<tr><td class=\"word\">{}</td><td class=\"ipa\">{}</td><td class=\"pos\">{}</td><td class=\"meaning\">{}</td><td class=\"example\"><em>{}</em></td></tr>",
             encode_text(&e.word),
             encode_text(&e.ipa),
             encode_text(&e.pos),
@@ -326,7 +326,11 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       --green:     #9ece6a;
       --yellow:    #e0af68;
       --red:       #f7768e;
-      --cyan:      #d9c0ff;
+      --focus-rare: #d9c0ff;
+      --focus-gear: rgba(168, 117, 255, .16);
+      --gear-gold: #f1e6cb;
+      --rare-item-bg: #5f4716;
+      --cyan:      var(--focus-rare);
       --purple:    #a875ff;
       --rare:      #8a52db;
       --rare-soft: rgba(138, 82, 219, .18);
@@ -353,26 +357,22 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       top: 1rem;
       right: 1rem;
       z-index: 140;
-      border: 1px solid var(--accent-border);
-      background:
-        linear-gradient(135deg, rgba(47, 30, 67, .92) 0%, rgba(28, 24, 44, .92) 100%);
-      color: var(--accent-bright);
+      border: 1px solid rgba(125, 207, 255, .28);
+      background: rgba(28, 33, 50, .88);
+      color: #7dcfff;
       font: 600 .82rem/1 'Segoe UI', system-ui, sans-serif;
       letter-spacing: .04em;
       border-radius: 999px;
       padding: .58rem .9rem;
       cursor: pointer;
       backdrop-filter: blur(12px);
-      box-shadow:
-        0 12px 30px rgba(0,0,0,.26),
-        inset 0 0 0 1px rgba(255, 228, 163, .05),
-        0 0 24px rgba(138, 82, 219, .12);
+      box-shadow: 0 12px 30px rgba(0,0,0,.26);
     }
     #toc-toggle:focus-visible {
       outline: none;
       box-shadow:
-        0 0 0 1px rgba(240, 208, 140, .55),
-        0 0 0 4px rgba(138, 82, 219, .26),
+        0 0 0 1px rgba(122, 162, 247, .45),
+        0 0 0 4px rgba(122, 162, 247, .16),
         0 12px 30px rgba(0,0,0,.26);
     }
     #toc-backdrop {
@@ -397,8 +397,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       height: 100vh;
       padding: 1.25rem 1rem 1.4rem;
       background:
-        linear-gradient(180deg, rgba(34, 24, 50, .98) 0%, rgba(19, 16, 31, .98) 100%);
-      border-left: 1px solid rgba(214, 179, 106, .14);
+        linear-gradient(180deg, rgba(34, 40, 61, .98) 0%, rgba(23, 28, 44, .98) 100%);
+      border-left: 1px solid rgba(125, 207, 255, .12);
       box-shadow: -24px 0 48px rgba(0,0,0,.34);
       overflow-y: auto;
       transform: translateX(104%);
@@ -409,7 +409,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .toc-head {
       margin-bottom: 1rem;
       padding-bottom: .9rem;
-      border-bottom: 1px solid rgba(214, 179, 106, .12);
+      border-bottom: 1px solid rgba(125, 207, 255, .12);
     }
     .toc-kicker {
       font: 700 .68rem/1 'Segoe UI', system-ui, sans-serif;
@@ -419,7 +419,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       margin-bottom: .45rem;
     }
     .toc-book-title {
-      color: var(--accent);
+      color: #7aa2f7;
       font-size: 1.02rem;
       line-height: 1.45;
       margin-bottom: .55rem;
@@ -453,6 +453,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     #reading-loc.is-floating {
       position: fixed;
+      color: var(--focus-rare);
+      border-color: var(--focus-rare);
       left: max(1rem, calc(50% - 500px));
       bottom: 1.75rem;
       z-index: 105;
@@ -478,23 +480,20 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     .toc-link:hover {
       transform: translateX(-2px);
-      background: linear-gradient(90deg, rgba(138, 82, 219, .12) 0%, rgba(214, 179, 106, .05) 100%);
-      border-color: rgba(214, 179, 106, .14);
+      background: rgba(122, 162, 247, .08);
+      border-color: rgba(122, 162, 247, .14);
     }
     .toc-link.is-current {
-      background:
-        linear-gradient(90deg, rgba(91, 47, 150, .24) 0%, rgba(214, 179, 106, .08) 100%);
-      border-color: var(--accent-border);
-      box-shadow:
-        inset 0 0 0 1px rgba(214, 179, 106, .08),
-        0 0 20px rgba(138, 82, 219, .08);
+      background: rgba(122, 162, 247, .12);
+      border-color: rgba(122, 162, 247, .26);
+      box-shadow: inset 0 0 0 1px rgba(122, 162, 247, .08);
     }
     .toc-link:focus-visible {
       outline: none;
-      border-color: rgba(240, 208, 140, .44);
+      border-color: rgba(122, 162, 247, .3);
       box-shadow:
-        inset 0 0 0 1px rgba(240, 208, 140, .1),
-        0 0 0 3px rgba(138, 82, 219, .18);
+        inset 0 0 0 1px rgba(122, 162, 247, .08),
+        0 0 0 3px rgba(122, 162, 247, .14);
     }
     .toc-link-index {
       color: var(--text-dim);
@@ -534,10 +533,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       width: 0%;
       border-radius: 9999px;
       transition: width .25s ease;
-      background: linear-gradient(90deg, #8c63e8 0%, #c18fff 40%, #e2bf79 78%, #f3e1b2 100%);
+      background: linear-gradient(90deg, var(--focus-rare) 0%, var(--gear-gold) 50%, #fff1b8 90%, #fff1b8 100%);
       box-shadow:
-        0 0 12px rgba(168, 117, 255, .24),
-        0 0 28px rgba(214, 179, 106, .18);
+        0 0 12px rgba(217, 192, 255, .24),
+        0 0 32px rgba(255, 232, 170, .24);
       position: relative;
       overflow: hidden;
     }
@@ -555,8 +554,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       transform: translateY(-50%);
       width: 5px; height: 5px;
       border-radius: 50%;
-      background: #ffe066;
-      box-shadow: 0 0 8px 3px #ffe077, 0 0 20px 6px rgba(255,210,50,.7), 0 0 36px 8px rgba(255,180,0,.35);
+      background: #fff1b8;
+      box-shadow: 0 0 10px 3px #fff1b8, 0 0 24px 7px rgba(255, 223, 122, .78), 0 0 40px 10px rgba(255, 196, 72, .42);
       opacity: 1;
       transition: opacity .25s;
     }
@@ -577,18 +576,16 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .para-block {
       margin-bottom: 2rem;
       border-left: 3px solid var(--border);
-      padding-left: 1rem;
+      border-radius: 0 4px 4px 0;
+      padding: .7rem 1rem 19px 1rem;
       transition: border-color .2s;
       scroll-margin-top: 1rem;
     }
     .para-block[data-status="done"] { border-left-color: var(--green); }
     .para-block[data-status="pending"] { border-left-color: var(--border); }
     .para-block.is-current {
-      border-left-color: var(--accent);
-      background: linear-gradient(90deg, rgba(138, 82, 219, .08) 0%, rgba(214, 179, 106, .035) 100%);
-      box-shadow:
-        -10px 0 24px rgba(138, 82, 219, .12),
-        inset 1px 0 0 rgba(214, 179, 106, .1);
+      border-left-color: var(--gear-gold);
+      background: transparent;
     }
 
     .original-text {
@@ -598,7 +595,11 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       text-align: justify;
     }
     .para-block.is-current .original-text {
-      color: #f1e6cb;
+      color: var(--focus-rare);
+      background: linear-gradient(90deg, var(--text) 0%, var(--text) 199%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
       text-shadow:
         0 0 10px rgba(214, 179, 106, .08),
         0 0 18px rgba(138, 82, 219, .05);
@@ -632,8 +633,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
         0 0 0 3px rgba(138, 82, 219, .16);
     }
 
-    .translation-section > summary { background: #1e2940; color: var(--cyan); }
-    .vocab-section      > summary { background: #201e30; color: var(--purple); }
+    .translation-section > summary { background: #201d30; color: var(--cyan); }
+    .vocab-section      > summary { background: #1d2940; color: var(--gear-gold); }
     .chunk-section      > summary { background: #1e2a20; color: var(--green); }
 
     .ai-content {
@@ -707,9 +708,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       vertical-align: top;
     }
     .vocab-table tr:last-child td { border-bottom: none; }
-    .vocab-table .word    { color: var(--yellow); font-weight: 700; }
+    .vocab-table .word    { color: var(--gear-gold); font-weight: 700; }
     .vocab-table .ipa     { color: var(--text-dim); font-family: monospace; }
-    .vocab-table .pos     { color: var(--orange); font-style: italic; }
+    .vocab-table .pos     { color: var(--gear-gold); font-style: italic; }
+    .vocab-table .meaning { color: var(--gear-gold); }
     .vocab-table .example { color: var(--text-dim); }
 
     /* Chunk list */
@@ -779,6 +781,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     const POSITION_KEY = 'reading-position:{{SLUG}}';
     const DETAILS_KEY = 'open-details:{{SLUG}}';
     const VIEWPORT_ANCHOR_RATIO = 0.5;
+    const PROGRESS_START_COLOR = '#d9c0ff';
+    const PROGRESS_MID_COLOR = '#f1e6cb';
+    const PROGRESS_END_COLOR = '#fff1b8';
+    const PROGRESS_MID_POINT = 0.35;
     let currentParaId = null;
     let rafPending = false;
 
@@ -795,6 +801,50 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       try {
         localStorage.setItem(key, JSON.stringify(value));
       } catch (_) {}
+    }
+
+    function clamp01(value) {
+      return Math.max(0, Math.min(1, value));
+    }
+
+    function hexToRgb(hex) {
+      const normalized = hex.replace('#', '');
+      const full = normalized.length === 3
+        ? normalized.split('').map(char => char + char).join('')
+        : normalized;
+
+      return {
+        r: parseInt(full.slice(0, 2), 16),
+        g: parseInt(full.slice(2, 4), 16),
+        b: parseInt(full.slice(4, 6), 16),
+      };
+    }
+
+    function mixHexColor(left, right, t) {
+      const ratio = clamp01(t);
+      const a = hexToRgb(left);
+      const b = hexToRgb(right);
+      const r = Math.round(a.r + (b.r - a.r) * ratio);
+      const g = Math.round(a.g + (b.g - a.g) * ratio);
+      const bVal = Math.round(a.b + (b.b - a.b) * ratio);
+      return `rgb(${r}, ${g}, ${bVal})`;
+    }
+
+    function progressEndColor(progress01) {
+      if (progress01 <= PROGRESS_MID_POINT) {
+        return mixHexColor(PROGRESS_START_COLOR, PROGRESS_MID_COLOR, progress01 / PROGRESS_MID_POINT);
+      }
+      return mixHexColor(
+        PROGRESS_MID_COLOR,
+        PROGRESS_END_COLOR,
+        (progress01 - PROGRESS_MID_POINT) / (1 - PROGRESS_MID_POINT)
+      );
+    }
+
+    function updateProgressBarVisual(pct) {
+      const progress01 = clamp01(pct / 100);
+      const endColor = progressEndColor(progress01);
+      bar.style.background = `linear-gradient(90deg, ${PROGRESS_START_COLOR} 0%, ${endColor} 100%)`;
     }
 
     function getScrollTop() {
@@ -871,6 +921,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       const locText = `${chapterTitle} · ${index}/${total}`;
 
       bar.style.width = pct + '%';
+      updateProgressBarVisual(pct);
       pctEl.textContent = pct.toFixed(2) + '%';
       readingLocEl.textContent = locText;
       tocLocInlineEl.textContent = locText;

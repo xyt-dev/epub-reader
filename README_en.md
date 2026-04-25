@@ -231,6 +231,9 @@ If you want to reuse the same visual system, these are the core CSS tokens:
   --accent: #d6b36a;
   --accent-bright: #f0d08c;
   --accent-border: rgba(214, 179, 106, 0.28);
+  --focus-rare: #d9c0ff;
+  --focus-gear: rgba(168, 117, 255, 0.16);
+  --gear-gold: #f1e6cb;
 
   --purple: #a875ff;
   --rare: #8a52db;
@@ -242,7 +245,10 @@ If you want to reuse the same visual system, these are the core CSS tokens:
 General usage notes:
 
 - Buttons and badges: dark purple gradient background with muted gold borders
-- Current paragraph and active chapter: purple glow with a gold edge
+- Focused English text: `--focus-rare`, the pale purple rare-item text color now used for the active paragraph
+- Focused block glow: `--focus-gear`, the purple-and-dark-gold outer glow around the active paragraph block
+- Left focus bar: `--gear-gold`, the `#f1e6cb` metallic equipment color
+- Current paragraph and active chapter: purple-and-gold glow with a gold edge
 - `:focus-visible`: remove the browser's default blue ring and replace it with a thin gold outline plus a purple outer halo
 - Progress bar: deep purple into bright purple, ending in muted gold
 - Code blocks: keep Catppuccin Mocha separate from the outer reader chrome

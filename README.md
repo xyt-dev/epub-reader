@@ -231,6 +231,9 @@ output/
   --accent: #d6b36a;
   --accent-bright: #f0d08c;
   --accent-border: rgba(214, 179, 106, 0.28);
+  --focus-rare: #d9c0ff;
+  --focus-gear: rgba(168, 117, 255, 0.16);
+  --gear-gold: #f1e6cb;
 
   --purple: #a875ff;
   --rare: #8a52db;
@@ -242,7 +245,10 @@ output/
 通用搭配建议：
 
 - 按钮 / badge：深紫渐变底 + 暗金描边
-- 当前段落 / 当前章节：紫色底光 + 金色边界
+- 聚焦英文正文：`--focus-rare`，也就是现在这组偏淡紫的稀有词条色
+- 聚焦 block glow：`--focus-gear`，也就是整块外圈的紫色暗金发光层
+- 左侧聚焦条：`--gear-gold`，也就是 `#f1e6cb` 这组更像装备词条的金属色
+- 当前段落 / 当前章节：紫色暗金 glow + 金色边界
 - 焦点态 `:focus-visible`：禁用浏览器默认蓝框，改成金色细描边 + 紫色外圈
 - 进度条：从深紫过渡到亮紫，再收在暗金
 - 代码高亮：继续用 Catppuccin Mocha，不和阅读器外层 UI 共用同一套色板
