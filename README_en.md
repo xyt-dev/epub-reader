@@ -214,6 +214,41 @@ The generated HTML also includes reading helpers:
 - A progress bar based on current paragraph index, so expanding details does not distort the percentage
 - Code blocks rendered with an embedded Catppuccin Mocha syntax-highlighting theme
 
+### Reader Theme Preset (Rare Gold + Purple)
+
+The reader no longer uses a bright blue focus color. The current UI theme uses a darker purple-and-gold palette instead: the page stays low-saturation and dark, while the current paragraph, active TOC item, top-right navigator button, and progress bar all use a Diablo-like rare / unique accent. Code highlighting stays on Catppuccin Mocha.
+
+If you want to reuse the same visual system, these are the core CSS tokens:
+
+```css
+:root {
+  --bg: #1a1b26;
+  --surface: #1f2335;
+  --border: #3b4168;
+  --text: #c0caf5;
+  --text-dim: #565f89;
+
+  --accent: #d6b36a;
+  --accent-bright: #f0d08c;
+  --accent-border: rgba(214, 179, 106, 0.28);
+
+  --purple: #a875ff;
+  --rare: #8a52db;
+  --rare-soft: rgba(138, 82, 219, 0.18);
+  --rare-deep: rgba(72, 34, 104, 0.74);
+}
+```
+
+General usage notes:
+
+- Buttons and badges: dark purple gradient background with muted gold borders
+- Current paragraph and active chapter: purple glow with a gold edge
+- `:focus-visible`: remove the browser's default blue ring and replace it with a thin gold outline plus a purple outer halo
+- Progress bar: deep purple into bright purple, ending in muted gold
+- Code blocks: keep Catppuccin Mocha separate from the outer reader chrome
+
+The current implementation lives in [src/html_gen.rs](src/html_gen.rs).
+
 ## Batching Strategy
 
 The translation stage does not send one paragraph per request by default. It sends small batches of contiguous paragraphs:

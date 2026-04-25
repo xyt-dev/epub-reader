@@ -319,12 +319,18 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       --border:    #3b4168;
       --text:      #c0caf5;
       --text-dim:  #565f89;
-      --accent:    #7aa2f7;
+      --accent:    #d6b36a;
+      --accent-bright: #f0d08c;
+      --accent-soft: rgba(214, 179, 106, .16);
+      --accent-border: rgba(214, 179, 106, .28);
       --green:     #9ece6a;
       --yellow:    #e0af68;
       --red:       #f7768e;
-      --cyan:      #7dcfff;
-      --purple:    #bb9af7;
+      --cyan:      #d9c0ff;
+      --purple:    #a875ff;
+      --rare:      #8a52db;
+      --rare-soft: rgba(138, 82, 219, .18);
+      --rare-deep: rgba(72, 34, 104, .74);
       --orange:    #ff9e64;
       --radius:    8px;
       font-size:   17px;
@@ -347,16 +353,27 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       top: 1rem;
       right: 1rem;
       z-index: 140;
-      border: 1px solid rgba(125, 207, 255, .28);
-      background: rgba(28, 33, 50, .88);
-      color: var(--cyan);
+      border: 1px solid var(--accent-border);
+      background:
+        linear-gradient(135deg, rgba(47, 30, 67, .92) 0%, rgba(28, 24, 44, .92) 100%);
+      color: var(--accent-bright);
       font: 600 .82rem/1 'Segoe UI', system-ui, sans-serif;
       letter-spacing: .04em;
       border-radius: 999px;
       padding: .58rem .9rem;
       cursor: pointer;
       backdrop-filter: blur(12px);
-      box-shadow: 0 12px 30px rgba(0,0,0,.26);
+      box-shadow:
+        0 12px 30px rgba(0,0,0,.26),
+        inset 0 0 0 1px rgba(255, 228, 163, .05),
+        0 0 24px rgba(138, 82, 219, .12);
+    }
+    #toc-toggle:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 1px rgba(240, 208, 140, .55),
+        0 0 0 4px rgba(138, 82, 219, .26),
+        0 12px 30px rgba(0,0,0,.26);
     }
     #toc-backdrop {
       position: fixed;
@@ -380,8 +397,8 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       height: 100vh;
       padding: 1.25rem 1rem 1.4rem;
       background:
-        linear-gradient(180deg, rgba(34, 40, 61, .98) 0%, rgba(23, 28, 44, .98) 100%);
-      border-left: 1px solid rgba(125, 207, 255, .12);
+        linear-gradient(180deg, rgba(34, 24, 50, .98) 0%, rgba(19, 16, 31, .98) 100%);
+      border-left: 1px solid rgba(214, 179, 106, .14);
       box-shadow: -24px 0 48px rgba(0,0,0,.34);
       overflow-y: auto;
       transform: translateX(104%);
@@ -392,7 +409,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .toc-head {
       margin-bottom: 1rem;
       padding-bottom: .9rem;
-      border-bottom: 1px solid rgba(125, 207, 255, .12);
+      border-bottom: 1px solid rgba(214, 179, 106, .12);
     }
     .toc-kicker {
       font: 700 .68rem/1 'Segoe UI', system-ui, sans-serif;
@@ -417,8 +434,9 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       display: inline-flex;
       align-items: center;
       gap: .4rem;
-      border: 1px solid rgba(122, 162, 247, .18);
-      background: rgba(19, 24, 39, .72);
+      border: 1px solid var(--accent-border);
+      background:
+        linear-gradient(135deg, rgba(39, 27, 55, .82) 0%, rgba(20, 19, 33, .8) 100%);
       color: var(--text);
       font: 600 .76rem/1.25 'Segoe UI', system-ui, sans-serif;
       padding: .5rem .75rem;
@@ -428,7 +446,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       overflow: hidden;
       text-overflow: ellipsis;
       backdrop-filter: blur(10px);
-      box-shadow: 0 8px 24px rgba(0,0,0,.24);
+      box-shadow:
+        0 8px 24px rgba(0,0,0,.24),
+        inset 0 0 0 1px rgba(255, 228, 163, .04),
+        0 0 24px rgba(138, 82, 219, .1);
     }
     #reading-loc.is-floating {
       position: fixed;
@@ -457,13 +478,23 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     }
     .toc-link:hover {
       transform: translateX(-2px);
-      background: rgba(122, 162, 247, .08);
-      border-color: rgba(122, 162, 247, .14);
+      background: linear-gradient(90deg, rgba(138, 82, 219, .12) 0%, rgba(214, 179, 106, .05) 100%);
+      border-color: rgba(214, 179, 106, .14);
     }
     .toc-link.is-current {
-      background: rgba(122, 162, 247, .12);
-      border-color: rgba(122, 162, 247, .26);
-      box-shadow: inset 0 0 0 1px rgba(122, 162, 247, .08);
+      background:
+        linear-gradient(90deg, rgba(91, 47, 150, .24) 0%, rgba(214, 179, 106, .08) 100%);
+      border-color: var(--accent-border);
+      box-shadow:
+        inset 0 0 0 1px rgba(214, 179, 106, .08),
+        0 0 20px rgba(138, 82, 219, .08);
+    }
+    .toc-link:focus-visible {
+      outline: none;
+      border-color: rgba(240, 208, 140, .44);
+      box-shadow:
+        inset 0 0 0 1px rgba(240, 208, 140, .1),
+        0 0 0 3px rgba(138, 82, 219, .18);
     }
     .toc-link-index {
       color: var(--text-dim);
@@ -503,9 +534,19 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       width: 0%;
       border-radius: 9999px;
       transition: width .25s ease;
-      background: linear-gradient(90deg, #7aa2f7 0%, #bb9af7 50%, #7dcfff 100%);
-      box-shadow: 0 0 8px rgba(122,162,247,.6);
+      background: linear-gradient(90deg, #8c63e8 0%, #c18fff 40%, #e2bf79 78%, #f3e1b2 100%);
+      box-shadow:
+        0 0 12px rgba(168, 117, 255, .24),
+        0 0 28px rgba(214, 179, 106, .18);
       position: relative;
+      overflow: hidden;
+    }
+    #progress-bar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,0) 74%);
+      pointer-events: none;
     }
     #progress-bar::after {
       content: '';
@@ -527,7 +568,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       scroll-margin-top: 1rem;
     }
     .chapter-title {
-      font-size: 1.6rem; color: var(--purple);
+      font-size: 1.6rem; color: #c89cff;
       border-bottom: 2px solid var(--border);
       padding-bottom: .4rem; margin-bottom: 2rem;
     }
@@ -544,7 +585,10 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     .para-block[data-status="pending"] { border-left-color: var(--border); }
     .para-block.is-current {
       border-left-color: var(--accent);
-      box-shadow: -10px 0 24px rgba(122, 162, 247, .08);
+      background: linear-gradient(90deg, rgba(138, 82, 219, .08) 0%, rgba(214, 179, 106, .035) 100%);
+      box-shadow:
+        -10px 0 24px rgba(138, 82, 219, .12),
+        inset 1px 0 0 rgba(214, 179, 106, .1);
     }
 
     .original-text {
@@ -553,7 +597,12 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       margin-bottom: .6rem;
       text-align: justify;
     }
-
+    .para-block.is-current .original-text {
+      color: #f1e6cb;
+      text-shadow:
+        0 0 10px rgba(214, 179, 106, .08),
+        0 0 18px rgba(138, 82, 219, .05);
+    }
     /* ── Collapsible AI sections ───────────────────────────────── */
     .ai-section {
       margin-top: .35rem;
@@ -576,6 +625,12 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
       content: '▶'; font-size: .6rem; transition: transform .15s;
     }
     .ai-section[open] > summary::before { transform: rotate(90deg); }
+    .ai-section > summary:focus-visible {
+      outline: none;
+      box-shadow:
+        inset 0 0 0 1px rgba(240, 208, 140, .12),
+        0 0 0 3px rgba(138, 82, 219, .16);
+    }
 
     .translation-section > summary { background: #1e2940; color: var(--cyan); }
     .vocab-section      > summary { background: #201e30; color: var(--purple); }
@@ -723,7 +778,7 @@ const HTML_TEMPLATE: &str = r#"<!DOCTYPE html>
     const detailSections = Array.from(document.querySelectorAll('.ai-section[data-detail-key]'));
     const POSITION_KEY = 'reading-position:{{SLUG}}';
     const DETAILS_KEY = 'open-details:{{SLUG}}';
-    const VIEWPORT_ANCHOR_RATIO = 0.28;
+    const VIEWPORT_ANCHOR_RATIO = 0.5;
     let currentParaId = null;
     let rafPending = false;
 
